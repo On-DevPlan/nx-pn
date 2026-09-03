@@ -20,3 +20,11 @@ export { compose } from './middleware.js'
 // Manifest
 export type { Manifest, HalfEntry, PageDeclaration } from './manifest.js'
 export { validateManifest, MANIFEST_VERSION, MAX_ZIP_BYTES } from './manifest.js'
+
+// Credentials
+export {
+  redactCredentials,
+  SENSITIVE_HEADER_NAMES,
+  type RedactResult,
+  type RedactedCredential,
+} from './credentials.js'
