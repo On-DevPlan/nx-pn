@@ -24,6 +24,7 @@ import {
   type BrowserHalfRecord,
   type BrowserHalfRetractMessage,
 } from './runner/browser-half-loader.js'
+import { loadBrowserHalfSource } from './runner/plugin-sync.js'
 
 export interface ConnectRpcOptions {
   /** ws URL. Default `ws://<location.host>/ws`. */
@@ -76,6 +77,8 @@ export class BrowserRuntime {
   private currentSnapshot: SnapshotData | undefined
   private readonly auditPushes: ((record: unknown) => void)[]
   private readonly halves = new Map<string, BrowserHalfRecord>()
+  /** pluginRunIds with an in-flight reconcile load (dedupes races). */
+  private readonly loading = new Set<string>()
 
   constructor(deps: BrowserRuntimeDeps) {
     this.ctx = deps.ctx
@@ -118,9 +121,10 @@ export class BrowserRuntime {
     const snap = parseSnapshot(payload)
     if (!snap) return
     this.currentSnapshot = snap
-    // Reconcile browser halves against the manifest. The real loader
-    // step is Plan 4 (see browser-half-loader); the seams are live.
-    this.reconcile(snap)
+    // Reconcile browser halves against the manifest: on a fresh connect
+    // (cold start / reload) fetch each declared browser half's compiled
+    // source over REST and load it; retract halves whose plugin vanished.
+    void this.reconcile(snap)
     for (const cb of [...this.snapshotListeners]) {
       try {
         cb(snap)
@@ -155,9 +159,40 @@ export class BrowserRuntime {
     await retractBrowserHalf({ ctx: this.ctx }, record)
   }
 
-  private reconcile(snap: SnapshotData): void {
-    // TODO(plan4): manifest-vs-local diff → load/retract browser halves.
-    void snap
+  /**
+   * Manifest-vs-local diff → load missing browser halves (REST feed),
+   * retract stale ones. Best-effort: a fetch/load failure never breaks
+   * the snapshot pipeline (the WS push path covers hot adds).
+   */
+  private async reconcile(snap: SnapshotData): Promise<void> {
+    const wanted = new Map<string, { id: string; pluginRunId: string }>()
+    for (const p of snap.plugins) {
+      if (p.manifest.halves.browser?.entry) {
+        wanted.set(p.pluginRunId, { id: p.id, pluginRunId: p.pluginRunId })
+      }
+    }
+    for (const meta of wanted.values()) {
+      if (this.halves.has(meta.pluginRunId) || this.loading.has(meta.pluginRunId)) continue
+      this.loading.add(meta.pluginRunId)
+      try {
+        const record = await loadBrowserHalfSource(this.ctx, meta)
+        if (record) this.halves.set(meta.pluginRunId, record)
+      } catch {
+        // isolate — a bad half must not kill the snapshot pipeline
+      } finally {
+        this.loading.delete(meta.pluginRunId)
+      }
+    }
+    for (const [runId, record] of [...this.halves]) {
+      if (!wanted.has(runId)) {
+        this.halves.delete(runId)
+        try {
+          await retractBrowserHalf({ ctx: this.ctx }, record)
+        } catch {
+          // isolate
+        }
+      }
+    }
   }
 
   close(): void {
@@ -269,7 +304,13 @@ export { WsTransport, ReconnectController } from './rpc/connection.js'
 export { RpcClient, RpcError } from './rpc/rpc-client.js'
 export { MAX_FRAME_BYTES, RPC_DEFAULT_TIMEOUT_MS } from './rpc/protocol.js'
 export { parseSnapshot } from './snapshot/snapshot.js'
-export { loadBrowserHalf, retractBrowserHalf } from './runner/browser-half-loader.js'
+export { loadBrowserHalf, retractBrowserHalf, SHARED_BROWSER_EXTERNALS } from './runner/browser-half-loader.js'
+export {
+  fetchBrowserHalfSource,
+  loadBrowserHalfSource,
+  installBrowserHalfFromHost,
+  type InstallBrowserHalfFromHostOptions,
+} from './runner/plugin-sync.js'
 export { ClientAuditClientProxy } from './audit/client-proxy.js'
 export { CordisContext } from './cordis/cordis-shim.js'
 export { fetchAudit, fetchReplay, fetchPluginList, stopPlugin, removePlugin, uninstallPlugin, uploadPlugin, installPluginByName, ApiError } from './host-api.js'

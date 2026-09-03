@@ -62,6 +62,9 @@ export async function activateBrowserHalf(
   halfFn: (ctx: Context) => unknown,
 ): Promise<BrowserHalfRecord> {
   const { ctx } = deps
+  if (typeof (ctx.registry?.plugin) !== 'function') {
+    throw new Error(`browser-half ${meta.id}: ctx lacks a cordis registry (no ctx.registry.plugin)`)
+  }
   const fiber = ctx.registry.plugin(halfFn as never, { name: meta.id } as never) as unknown as Fiber
   // Wait for the half to settle; an apply error propagates to the caller
   // (the WS layer logs it — a bad half must not kill the page, spec §8.1).
@@ -108,9 +111,16 @@ export async function retractBrowserHalf(_deps: BrowserHalfDeps, record: Browser
 /**
  * Compile-time check helper so the spec review checklist for this
  * module passes: browser-half compilation must NOT bundle shared deps
- * (react, react-dom, cordis) — they come from the app's import map
- * (spec §9.4 / §5.2.2). The esbuild options live in the plugin build
- * (plugins/example-api/scripts/build-zip.mjs); this constant documents
- * the contract.
+ * (react, react-dom, react-router-dom, cordis) — they come from the app's
+ * import map (spec §9.4 / §5.2.2). The esbuild options live in the plugin
+ * build (plugins/example-api/scripts/build-zip.mjs); this constant
+ * documents the contract.
  */
-export const SHARED_BROWSER_EXTERNALS = ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client', 'cordis']
+export const SHARED_BROWSER_EXTERNALS = [
+  'react',
+  'react-dom',
+  'react/jsx-runtime',
+  'react-dom/client',
+  'react-router-dom',
+  'cordis',
+]
