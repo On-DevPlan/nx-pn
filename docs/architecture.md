@@ -4,6 +4,12 @@ Full design spec (authoritative):
 [`docs/superpowers/specs/2026-09-03-api-audit-design.md`](superpowers/specs/2026-09-03-api-audit-design.md).
 This page is the short map: four packages, one plugin platform.
 
+> **Identity (npx-plugin):** api-audit is `nx-pn` — the plugin system is
+> driven by **npm package names**. A user publishes a plugin as an npm
+> package, any consumer runs `npx api-audit add <pkg>`, and the plugin is
+> installed into `data-dir/` and loaded into the running host. Zip
+> dual-half upload remains as the **secondary** channel.
+
 ## The four packages
 
 ```
@@ -17,7 +23,8 @@ This page is the short map: four packages, one plugin platform.
 │  packages/host (Node)                                           │
 │  cordis Context · HTTP server · WsHostServer · AuditRingBuffer  │
 │  HostAuditClient (undici + onion middleware + credential        │
-│  redaction) · plugin loader (zip → esbuild → import → fiber)    │
+│  redaction) · plugin installer (npm install-by-name → import →  │
+│  fiber) · plugin loader (zip → esbuild → import → fiber)        │
 │  ▲ deps                                                          │
 │  packages/core — pure contracts shared by both sides            │
 └─────────────────────────────────────────────────────────────────┘
@@ -42,7 +49,8 @@ This page is the short map: four packages, one plugin platform.
   core pages; the host serves its `dist/` statically (per-request
   readFile, resolved via `@api-audit/web/package.json`).
 - **`apps/cli`** — the `api-audit` bin: `parseArgs` (`--port`,
-  `--data-dir`, `--no-open`) → `startHost` → open browser → SIGINT/SIGTERM
+  `--data-dir`, `--no-open`) + one-shot subcommands `add <spec>` /
+  `uninstall <id|runId>` → `startHost` → open browser → SIGINT/SIGTERM
   → clean stop.
 
 ## Request lifecycle (audit pipeline)
@@ -61,7 +69,24 @@ caller (core / replay / plugin via ctx.auditClient)
 `<manifest id>` (plugins — resolved from the calling plugin's cordis
 fiber against the lifecycle registry, spec §7.4).
 
-## Plugin lifecycle (hot-add)
+## Plugin lifecycle (install-by-name, primary)
+
+```
+POST /api/plugins/install { spec }        or `npx api-audit add <spec>`
+  → npm install <spec> --prefix data-dir/plugins-registry --no-save …
+  → build core Manifest from package.json["api-audit"].manifest + main
+  → validateManifest          → 400 on schema violation / missing manifest
+  → import(hostEntry)         → no esbuild (npm ships compiled JS)
+  → ctx.plugin(halfFn, { name: id }) → register BEFORE await
+  → await fiber.await() → lifecycle.register { id, pluginRunId, fiber }
+  → record spec in data-dir/plugins-registry/installed.json   → 201
+```
+
+The installed spec ledger is replayed on every host boot (`startHost`
+calls `restartNpmPlugins` after the zip replay), so npm-installed plugins
+reload across restarts — parity with zip persistence.
+
+## Plugin lifecycle (zip upload, secondary)
 
 ```
 POST /api/plugins (zip)
@@ -73,9 +98,10 @@ POST /api/plugins (zip)
   → (browser half: pushed to connected browsers as browser-half.load
      → blob import → ctx.plugin → pages.register — see notes below)
 
-stop:    POST /api/plugins/:runId/stop   → fiber.dispose() (effects run)
-remove:  POST /api/plugins/:runId/remove → stop + registry eviction
-restart: startHost replays data-dir/plugins/*.zip through the pipeline
+stop:      POST /api/plugins/:runId/stop   → fiber.dispose() (effects run)
+remove:    POST /api/plugins/:runId/remove → stop + registry eviction
+uninstall: POST /api/plugins/:runId/uninstall → remove + drop npm ledger
+restart:   startHost replays data-dir/plugins/*.zip + the install ledger
 ```
 
 Failure isolation: a plugin that throws during activation has its fiber
