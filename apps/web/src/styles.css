@@ -73,6 +73,14 @@ body {
   color: #fff;
 }
 
+.nav-sep {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #6e7689;
+  padding: 14px 16px 4px;
+}
+
 .sidebar-foot {
   padding: 12px 16px;
 }
