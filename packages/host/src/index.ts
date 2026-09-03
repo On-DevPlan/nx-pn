@@ -88,12 +88,75 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
       manifest: e.manifest,
     })),
   })
+  /**
+   * Browser-side `rpc.invoke` dispatcher (spec §5.5). A plugin browser
+   * half's `ctx.auditClient.get/post/...` rides the WS bridge as an
+   * `rpc.invoke` frame carrying its pluginRunId. Resolve that run id to
+   * the plugin name (spec §7.4 attribution), run the audited request,
+   * and reply with the AuditResponse envelope the browser proxy parses.
+   */
+  async function handleBrowserInvoke(
+    bridge: import('./ws/rpc-bridge.js').RpcBridge,
+    frame: import('./ws/rpc-bridge.js').RpcFrame,
+  ): Promise<void> {
+    const payload = (frame.payload ?? {}) as {
+      method?: unknown
+      url?: unknown
+      body?: unknown
+      pluginRunId?: unknown
+      config?: Record<string, unknown>
+    }
+    const method = String(payload.method ?? 'GET').toUpperCase()
+    const url = typeof payload.url === 'string' ? payload.url : ''
+    const runId = typeof payload.pluginRunId === 'string' ? payload.pluginRunId : undefined
+    const entry = runId ? lifecycle.byRunId(runId) : undefined
+    const base = (payload.config ?? {}) as { headers?: Record<string, string>; timeoutMs?: number }
+    const config = entry ? { ...base, initiator: entry.id } : base
+    try {
+      let res: import('@api-audit/core').AuditResponse
+      switch (method) {
+        case 'GET':
+          res = await client.get(url, config)
+          break
+        case 'POST':
+          res = await client.post(url, payload.body, config)
+          break
+        case 'PUT':
+          res = await client.put(url, payload.body, config)
+          break
+        case 'PATCH':
+          res = await client.patch(url, payload.body, config)
+          break
+        case 'DELETE':
+          res = await client.delete(url, config)
+          break
+        default:
+          bridge.sendResult(frame.requestId, {
+            ok: false,
+            error: { code: 'rpc/unsupported-method', message: `unsupported method ${method}` },
+          }, frame.generation)
+          return
+      }
+      bridge.sendResult(frame.requestId, { ok: true, data: res }, frame.generation)
+    } catch (err) {
+      // The audit middleware already recorded the failure (status 0); the
+      // caller still gets a structured error so the page can render it.
+      bridge.sendResult(frame.requestId, {
+        ok: false,
+        error: { code: 'rpc/invoke-error', message: err instanceof Error ? err.message : String(err) },
+      }, frame.generation)
+    }
+  }
   ws.configureConnection = (bridge) => {
     bridge.sendNotification('snapshot.respond', snapshot(bridge))
     bridge.setFrameHandler((frame) => {
       if (frame.op === 'snapshot.request') {
         const sinceId = (frame.payload as { sinceId?: number } | undefined)?.sinceId ?? 0
         bridge.sendNotification('snapshot.respond', snapshot(bridge, sinceId))
+        return
+      }
+      if (frame.op === 'rpc.invoke') {
+        void handleBrowserInvoke(bridge, frame)
       }
     })
   }

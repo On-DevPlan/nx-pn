@@ -88,7 +88,7 @@ export class ClientAuditClientProxy implements AuditClient {
 }
 
 /** Validate the host's response payload into an AuditResponse. */
-function parseResponse(data: unknown): AuditResponse {
+export function parseResponse(data: unknown): AuditResponse {
   if (!data || typeof data !== 'object') {
     throw new RpcError('malformed audit response')
   }

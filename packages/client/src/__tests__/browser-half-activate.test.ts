@@ -8,6 +8,16 @@ import { activateBrowserHalf, retractBrowserHalf, type BrowserHalfRecord } from 
 async function makeCtx(): Promise<Context> {
   const raw = new CordisContext() as Context
   await (raw.registry.plugin(Pages, {}) as unknown as Fiber).await()
+  // Match what connectRpc does in the live browser: auditClient is also
+  // a registered cordis service so fiber activation satisfies the
+  // loader's `inject: ['pages', 'auditClient']` declaration. The test
+  // halves only call `ctx.pages.register(...)` — the proxy itself can be
+  // a no-op stub here.
+  ;(raw.reflect as { provide: (name: string, value: unknown, check?: unknown) => unknown }).provide(
+    'auditClient',
+    { get: () => undefined, post: () => undefined, put: () => undefined, patch: () => undefined, delete: () => undefined },
+    undefined,
+  )
   return raw
 }
 

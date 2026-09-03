@@ -21,6 +21,14 @@ import { installBrowserHalfFromHost } from '../runner/plugin-sync.js'
 async function makeCtx(): Promise<Context> {
   const raw = new CordisContext() as Context
   await (raw.registry.plugin(Pages, {}) as unknown as Fiber).await()
+  // Mirror the live browser: auditClient is a registered cordis service so
+  // the loader's `inject: ['pages', 'auditClient']` is satisfied. Stub
+  // methods are fine here — the test halves only touch ctx.pages.
+  ;(raw.reflect as { provide: (name: string, value: unknown, check?: unknown) => unknown }).provide(
+    'auditClient',
+    { get: () => undefined, post: () => undefined, put: () => undefined, patch: () => undefined, delete: () => undefined },
+    undefined,
+  )
   return raw
 }
 

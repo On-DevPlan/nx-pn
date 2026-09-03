@@ -157,6 +157,41 @@ export class RpcBridge {
   }
 
   /**
+    * Send a reply to a server-invoked op (used by the rpc.invoke →
+    * auditClient dispatcher). Carries the caller's `requestId` so the
+    * browser-side pending entry resolves on the matching frame; the
+    * `generation` is echoed from the original request so the mismatch
+    * guard (which compares against the client's own epoch) passes.
+    */
+  sendResult(requestId: string, payload: unknown, generation?: number): boolean {
+    if (this.closed) return false
+    const frame: RpcFrame = {
+      v: 1,
+      generation: generation ?? this.generation,
+      requestId,
+      op: 'rpc.result',
+      payload,
+    }
+    try {
+      const text = encodeFrame(frame)
+      this.send(text)
+      return true
+    } catch (err) {
+      if (err instanceof RpcError && err.code === FRAME_TOO_LARGE_CODE) {
+        this.send(JSON.stringify({
+          v: 1,
+          generation: this.generation,
+          requestId,
+          op: 'error',
+          payload: { ok: false, error: { code: FRAME_TOO_LARGE_CODE } },
+        }))
+        return false
+      }
+      throw err
+    }
+  }
+
+  /**
     * Send a one-way notification (no pending tracking). Outbound frame-size
     * enforced. Returns false on too-large; never throws.
     */

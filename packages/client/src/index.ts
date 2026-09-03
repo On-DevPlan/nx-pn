@@ -17,6 +17,8 @@ import { WsTransport } from './rpc/connection.js'
 import { RpcClient } from './rpc/rpc-client.js'
 import type { RpcFrame } from './rpc/protocol.js'
 import { parseSnapshot, type SnapshotData } from './snapshot/snapshot.js'
+import { AuditClientService, bindAuditRpc } from './audit/audit-client-service.js'
+import { ClientAuditClientProxy } from './audit/client-proxy.js'
 import {
   loadBrowserHalf,
   retractBrowserHalf,
@@ -247,6 +249,13 @@ export async function connectRpc(opts: ConnectRpcOptions = {}): Promise<BrowserR
   const rpc = new RpcClient((text: string) => transport.send(text), {
     onFrame: (frame) => routeFrame(runtime, frame),
   })
+  // AuditClient service: the browser-half loader declares
+  // `inject: ['pages', 'auditClient']` so cordis activates a plugin
+  // fiber only when both services are present. AuditClientService reads
+  // the calling half's pluginRunId off its fiber config and rides the
+  // WS bridge as an `rpc.invoke` frame (§5.5).
+  installAuditClient(ctx)
+  bindAuditRpc(rpc)
   const runtime = new BrowserRuntime({ ctx, transport, rpc })
 
   transport.connect()
@@ -300,6 +309,24 @@ async function installPages(ctx: Context): Promise<Pages> {
     pages = ctx.pages as unknown as Pages
   }
   return pages
+}
+
+/**
+ * Register the auditClient cordis service so the loader's
+ * `inject: ['pages', 'auditClient']` is satisfied when any browser half
+ * (e.g. plugins/echo's onSend → auditClient.get) accesses it via
+ * ctx.auditClient. The service resolves each call's pluginRunId from the
+ * calling half's fiber config, so every rpc.invoke carries the right run
+ * id and the host attributes the audit row to the correct plugin.
+ *
+ * Constructing AuditClientService provides it on the root context (the
+ * cordis Service constructor calls reflect.provide); unlike Pages we
+ * don't need to await a fiber because the service has no async init.
+ */
+function installAuditClient(ctx: Context): void {
+  const already = (ctx.reflect as { _getImpl?: (n: string, strict?: boolean) => unknown })._getImpl?.('auditClient', true)
+  if (already) return
+  void new AuditClientService(ctx)
 }
 
 function defaultWsUrl(): string {
