@@ -6,7 +6,7 @@ This page is the short map: four packages, one plugin platform.
 
 > **Identity (npx-plugin):** api-audit is `nx-pn` — the plugin system is
 > driven by **npm package names**. A user publishes a plugin as an npm
-> package, any consumer runs `npx api-audit add <pkg>`, and the plugin is
+> package, any consumer runs `npx @flowot/nx-pn add <pkg>`, and the plugin is
 > installed into `data-dir/` and loaded into the running host. Zip
 > dual-half upload remains as the **secondary** channel.
 
@@ -47,7 +47,7 @@ This page is the short map: four packages, one plugin platform.
   `ClientAuditClientProxy` that forwards plugin requests over WS RPC.
 - **`apps/web`** — React 18 + react-router shell rendering the three
   core pages; the host serves its `dist/` statically (per-request
-  readFile, resolved via `@api-audit/web/package.json`).
+  readFile, resolved via `@flowot/nx-pn-web/package.json`).
 - **`apps/cli`** — the `api-audit` bin: `parseArgs` (`--port`,
   `--data-dir`, `--no-open`) + one-shot subcommands `add <spec>` /
   `uninstall <id|runId>` → `startHost` → open browser → SIGINT/SIGTERM
@@ -72,7 +72,7 @@ fiber against the lifecycle registry, spec §7.4).
 ## Plugin lifecycle (install-by-name, primary)
 
 ```
-POST /api/plugins/install { spec }        or `npx api-audit add <spec>`
+POST /api/plugins/install { spec }        or `npx @flowot/nx-pn add <spec>`
   → npm install <spec> --prefix data-dir/plugins-registry --no-save …
   → build core Manifest from package.json["api-audit"].manifest + main
   → validateManifest          → 400 on schema violation / missing manifest

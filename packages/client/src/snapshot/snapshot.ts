@@ -12,7 +12,7 @@
  * loader in Plan 4; this module owns the frame-level state machine only.
  */
 
-import type { Manifest } from '@api-audit/core'
+import type { Manifest } from '@flowot/nx-pn-core'
 
 /** Plugin manifest entry as pushed in snapshot payloads. */
 export interface PluginManifestEntry {

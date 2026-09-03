@@ -1,7 +1,7 @@
 /**
  * Frontend static service. Spec §2.3.1 / §4.1 (frontend-static.ts).
  *
- * Resolves `@api-audit/web/package.json` via createRequire + require.resolve
+ * Resolves `@flowot/nx-pn-web/package.json` via createRequire + require.resolve
  * to anchor the dist directory. Per-request readFile (no caching).
  * Tolerates missing dist → returns null and the route serves 503.
  */
@@ -13,7 +13,7 @@ import { dirname, join, normalize, sep } from 'node:path'
 export interface FrontendStaticServiceOptions {
   /** Override the module URL used by createRequire. Defaults to import.meta.url. */
   moduleUrl?: string
-  /** Override the package name to resolve. Defaults to '@api-audit/web'. */
+  /** Override the package name to resolve. Defaults to '@flowot/nx-pn-web'. */
   packageName?: string
   /** Override the dist sub-path. Defaults to 'dist'. */
   distSubpath?: string
@@ -32,7 +32,7 @@ export function createFrontendStaticService(
   opts: FrontendStaticServiceOptions = {},
 ): FrontendStaticService {
   const moduleUrl = opts.moduleUrl ?? import.meta.url
-  const packageName = opts.packageName ?? '@api-audit/web'
+  const packageName = opts.packageName ?? '@flowot/nx-pn-web'
   const distSubpath = opts.distSubpath ?? 'dist'
 
   let cachedRoot: string | null | undefined

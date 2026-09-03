@@ -9,7 +9,7 @@
  * translates transport errors into local `Error`s.
  */
 
-import type { AuditClient, AuditResponse, RequestConfig } from '@api-audit/core'
+import type { AuditClient, AuditResponse, RequestConfig } from '@flowot/nx-pn-core'
 import type { RpcClient } from '../rpc/rpc-client.js'
 
 export interface ClientProxyOptions {

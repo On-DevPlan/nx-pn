@@ -16,7 +16,7 @@ export interface LifecycleEntry {
   /** Compiled browser-half ESM source (if the manifest declares one). */
   browserSource?: string
   /** Manifest snapshot for list endpoints. */
-  manifest: import('@api-audit/core').Manifest
+  manifest: import('@flowot/nx-pn-core').Manifest
 }
 
 export class PluginLifecycle {

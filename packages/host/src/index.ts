@@ -1,5 +1,5 @@
 /**
- * @api-audit/host — Node-side runtime. Spec §4.
+ * @flowot/nx-pn-host — Node-side runtime. Spec §4.
  *
  * Public API:
  *   - startHost({ port, dataDir }) → boots HTTP + WS + cordis; returns
@@ -113,7 +113,7 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
     const base = (payload.config ?? {}) as { headers?: Record<string, string>; timeoutMs?: number }
     const config = entry ? { ...base, initiator: entry.id } : base
     try {
-      let res: import('@api-audit/core').AuditResponse
+      let res: import('@flowot/nx-pn-core').AuditResponse
       switch (method) {
         case 'GET':
           res = await client.get(url, config)

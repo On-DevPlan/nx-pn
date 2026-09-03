@@ -15,7 +15,7 @@
     "check:spec": "bash tools/check-spec.sh"
   },
   "devDependencies": {
-    "@api-audit/cli": "workspace:^",
+    "@flowot/nx-pn": "workspace:^",
     "nx": "19.8.6",
     "typescript": "5.6.3"
   }

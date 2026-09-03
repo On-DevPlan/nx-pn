@@ -1,9 +1,17 @@
 {
-  "name": "@api-audit/web",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@flowot/nx-pn-web",
+  "version": "0.1.0",
+  "description": "Web shell frontend for the nx-pn plugin platform — vite build; dist/ served by the host",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/On-DevPlan/nx-pn.git",
+    "directory": "apps/web"
+  },
   "type": "module",
-  "main": "./src/main.tsx",
   "exports": {
     "./dist/*": "./dist/*",
     "./package.json": "./package.json"
@@ -20,20 +28,18 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "dependencies": {
-    "@api-audit/client": "workspace:^",
-    "@api-audit/core": "workspace:^",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.26.2"
-  },
   "devDependencies": {
+    "@flowot/nx-pn-client": "workspace:^",
+    "@flowot/nx-pn-core": "workspace:^",
     "@rollup/plugin-commonjs": "^29.0.3",
     "@rollup/plugin-node-resolve": "^16.0.3",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "esbuild": "^0.24.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2",
     "rollup": "^4.63.1",
     "typescript": "5.6.3",
     "vite": "^5.4.8",

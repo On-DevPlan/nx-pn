@@ -1,7 +1,16 @@
 {
-  "name": "@api-audit/host",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@flowot/nx-pn-host",
+  "version": "0.1.0",
+  "description": "Node runtime for the nx-pn plugin platform: HTTP/WS server, cordis services, plugin loader/installer",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/On-DevPlan/nx-pn.git",
+    "directory": "packages/host"
+  },
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -11,7 +20,7 @@
       "default": "./lib/index.js"
     }
   },
-  "files": ["lib"],
+  "files": ["lib", "!lib/*.tsbuildinfo", "!lib/_test-t*"],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
@@ -19,8 +28,8 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@api-audit/core": "workspace:^",
-    "@api-audit/web": "workspace:^",
+    "@flowot/nx-pn-core": "workspace:^",
+    "@flowot/nx-pn-web": "workspace:^",
     "cordis": "^4.0.0-rc.9",
     "undici": "^6.0.0",
     "ws": "^8.18.0"

@@ -1,5 +1,5 @@
 /**
- * @api-audit/core — pure contract layer (spec §3).
+ * @flowot/nx-pn-core — pure contract layer (spec §3).
  *
  * Zero cordis dependency; zero Context augmentation. This package is
  * consumable by both host (Node) and client (browser) without dragging

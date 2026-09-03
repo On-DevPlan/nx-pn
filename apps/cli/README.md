@@ -1,13 +1,13 @@
-# @api-audit/cli
+# @flowot/nx-pn
 
 The `api-audit` npx entry (spec §2.2). Boots the Node-side host
-(`@api-audit/host`), serves the web UI, and opens a browser.
+(`@flowot/nx-pn-host`), serves the web UI, and opens a browser.
 
 ## Usage
 
 ```bash
 # from the repo root, after `pnpm install && pnpm build`:
-npx api-audit            # → http://localhost:4560
+npx @flowot/nx-pn            # → http://localhost:4560
 ```
 
 Flags:
@@ -24,6 +24,6 @@ dispose first, then WS, then HTTP.
 
 ## Layout
 
-- `bin/api-audit.mjs` — the bin; loads the built `lib/main.js` and runs it.
+- `bin/nx-pn.mjs` — the bin; loads the built `lib/main.js` and runs it.
 - `src/main.ts` — `parseArgs` (pure, unit-tested) + `runCli` (startHost,
   banner, browser open, signal handling).

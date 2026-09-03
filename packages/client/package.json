@@ -1,7 +1,16 @@
 {
-  "name": "@api-audit/client",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@flowot/nx-pn-client",
+  "version": "0.1.0",
+  "description": "Browser runtime for the nx-pn plugin platform: WS RPC, Pages service, auditClient proxy",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/On-DevPlan/nx-pn.git",
+    "directory": "packages/client"
+  },
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -12,7 +21,7 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["lib"],
+  "files": ["lib", "!lib/*.tsbuildinfo"],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
@@ -20,7 +29,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@api-audit/core": "workspace:^",
+    "@flowot/nx-pn-core": "workspace:^",
     "cordis": "^4.0.0-rc.9"
   },
   "peerDependencies": {

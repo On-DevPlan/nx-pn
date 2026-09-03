@@ -19,7 +19,7 @@ import {
   type MiddlewareContext,
   compose,
   MAX_BODY_BYTES,
-} from '@api-audit/core'
+} from '@flowot/nx-pn-core'
 
 import type { AuditRingBuffer } from './ring-buffer.js'
 import type { AuditRecord } from './audit-record.js'

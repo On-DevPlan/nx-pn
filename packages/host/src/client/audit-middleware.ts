@@ -11,9 +11,9 @@
  * buffer can never propagate back into user code.
  */
 
-import type { MiddlewareContext, Next, Middleware } from '@api-audit/core'
-import { MAX_BODY_BYTES } from '@api-audit/core'
-import { redactCredentials } from '@api-audit/core'
+import type { MiddlewareContext, Next, Middleware } from '@flowot/nx-pn-core'
+import { MAX_BODY_BYTES } from '@flowot/nx-pn-core'
+import { redactCredentials } from '@flowot/nx-pn-core'
 
 import type { AuditRecord } from './audit-record.js'
 import type { AuditRingBuffer } from './ring-buffer.js'

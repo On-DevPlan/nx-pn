@@ -1,0 +1,20 @@
+{
+  "name": "nx-pn",
+  "version": "0.1.0",
+  "description": "Unscoped alias for @flowot/nx-pn — `npx nx-pn` starts the api-audit web workbench",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/On-DevPlan/nx-pn.git",
+    "directory": "apps/nx-pn"
+  },
+  "type": "module",
+  "bin": { "nx-pn": "./bin/nx-pn.mjs" },
+  "files": ["bin"],
+  "dependencies": {
+    "@flowot/nx-pn": "workspace:^"
+  }
+}

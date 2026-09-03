@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { BrowserRuntimeHandle } from '@api-audit/client'
-import { fetchAudit } from '@api-audit/client'
-import type { AuditRecord } from '@api-audit/client'
+import type { BrowserRuntimeHandle } from '@flowot/nx-pn-client'
+import { fetchAudit } from '@flowot/nx-pn-client'
+import type { AuditRecord } from '@flowot/nx-pn-client'
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
 

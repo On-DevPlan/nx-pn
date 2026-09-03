@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { PluginSummary } from '@api-audit/client'
-import { fetchPluginList, stopPlugin, removePlugin, uploadPlugin, installPluginByName, ApiError } from '@api-audit/client'
+import type { PluginSummary } from '@flowot/nx-pn-client'
+import { fetchPluginList, stopPlugin, removePlugin, uploadPlugin, installPluginByName, ApiError } from '@flowot/nx-pn-client'
 
 type PluginState = 'running' | 'stopping' | 'removing' | 'error'
 

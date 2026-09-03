@@ -23,7 +23,7 @@ import {
   validateManifest,
   type Manifest,
   MAX_ZIP_BYTES,
-} from '@api-audit/core'
+} from '@flowot/nx-pn-core'
 
 import { compileHostHalf, importCompiledModule } from './host-compiler.js'
 import { PluginLifecycle } from './lifecycle.js'

@@ -25,7 +25,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { MANIFEST_VERSION, validateManifest, type Manifest } from '@api-audit/core'
+import { MANIFEST_VERSION, validateManifest, type Manifest } from '@flowot/nx-pn-core'
 import type { Context, Fiber } from '../cordis/cordis-shim.js'
 import type { PluginLifecycle } from './lifecycle.js'
 

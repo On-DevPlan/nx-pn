@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AuditRecord, BrowserRuntimeHandle } from '@api-audit/client'
-import { fetchAudit, fetchReplay } from '@api-audit/client'
+import type { AuditRecord, BrowserRuntimeHandle } from '@flowot/nx-pn-client'
+import { fetchAudit, fetchReplay } from '@flowot/nx-pn-client'
 
 const NON_IDEMPOTENT = ['POST', 'PUT', 'PATCH', 'DELETE']
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']

@@ -12,7 +12,7 @@ import { readJsonBody, sendJson, BodyTooLargeError } from './http-utils.js'
 import type { AuditRingBuffer } from '../client/ring-buffer.js'
 import type { AuditRecord } from '../client/audit-record.js'
 import type { HostAuditClient } from '../client/audit-client.js'
-import type { MiddlewareContext } from '@api-audit/core'
+import type { MiddlewareContext } from '@flowot/nx-pn-core'
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 

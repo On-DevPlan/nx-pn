@@ -4,7 +4,7 @@ A local API audit workbench built as a **cordis plugin platform**. A
 Node-side host serves the web UI, runs a cordis `Context`, and exposes a
 unified `AuditClient` — every HTTP request made through it (by core, by
 replay, or by plugins) is recorded, credential-redacted, and
-attributable. Plugins install by **npm package name** (`npx api-audit
+attributable. Plugins install by **npm package name** (`npx @flowot/nx-pn
 add <pkg>`) — the npx-plugin primary path — with dual-half **zip upload**
 kept as a secondary channel. Either way a plugin hot-loads at runtime
 without restarting the host.
@@ -17,9 +17,13 @@ Design spec: [`docs/superpowers/specs/2026-09-03-api-audit-design.md`](docs/supe
 ```bash
 pnpm install
 pnpm build          # nx: core → host/client → web → cli (types + libs + web dist)
-npx api-audit       # → api-audit listening on http://localhost:4560
-npx api-audit add @scope/my-audit-plugin   # install a plugin by npm package name
+npx @flowot/nx-pn       # → api-audit listening on http://localhost:4560
+npx @flowot/nx-pn add @scope/my-audit-plugin   # install a plugin by npm package name
 ```
+
+Published to npm as the `@flowot/nx-pn*` family (CLI, core, client, web,
+host); the unscoped alias package `nx-pn` forwards to the same bin, so
+`npx nx-pn` works too.
 
 The CLI opens a browser at `http://localhost:4560`. Flags: `--port <n>`,
 `--data-dir <dir>` (default `~/.api-audit`), `--no-open`, `--help`.
@@ -86,8 +90,8 @@ export default function (ctx) {
 Install it into the running host by package name:
 
 ```bash
-npx api-audit add @scope/my-audit-plugin     # or name@1.2.3 / file:./folder
-npx api-audit uninstall my-audit-plugin
+npx @flowot/nx-pn add @scope/my-audit-plugin     # or name@1.2.3 / file:./folder
+npx @flowot/nx-pn uninstall my-audit-plugin
 ```
 
 or from the `/plugins` 按包名安装 form in the web UI. The host installs
@@ -141,7 +145,7 @@ to `example-api`.
 
 ```
 apps/
-  cli/                 # npx api-audit entry (bin, parseArgs, signal handling)
+  cli/                 # npx @flowot/nx-pn entry (bin, parseArgs, signal handling)
   web/                 # React 18 + Vite shell; core pages /audit /replay /plugins
 packages/
   core/                # pure contracts: AuditClient, middleware, manifest schema

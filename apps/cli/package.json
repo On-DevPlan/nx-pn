@@ -1,10 +1,19 @@
 {
-  "name": "@api-audit/cli",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@flowot/nx-pn",
+  "version": "0.1.0",
+  "description": "nx-pn CLI — start the api-audit web workbench, install/uninstall plugins (npx @flowot/nx-pn)",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/On-DevPlan/nx-pn.git",
+    "directory": "apps/cli"
+  },
   "type": "module",
-  "bin": { "api-audit": "./bin/api-audit.mjs" },
-  "files": ["bin", "lib"],
+  "bin": { "nx-pn": "./bin/nx-pn.mjs" },
+  "files": ["bin", "lib", "!lib/*.tsbuildinfo"],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
@@ -12,7 +21,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@api-audit/host": "workspace:^"
+    "@flowot/nx-pn-host": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "^22.7.0",

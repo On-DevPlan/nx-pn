@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { PluginLifecycle } from '../plugins/lifecycle.js'
-import type { Manifest } from '@api-audit/core'
+import type { Manifest } from '@flowot/nx-pn-core'
 import { CordisContext } from '../cordis/cordis-shim.js'
 
 function fakeManifest(): Manifest {

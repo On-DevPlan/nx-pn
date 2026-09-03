@@ -6,14 +6,14 @@
  * as the long-running web server.
  *
  * The npx-plugin primary flow:
- *   npx api-audit add @scope/my-audit-plugin   # npm install-by-name
- *   npx api-audit uninstall my-plugin          # remove by id or run id
+ *   npx @flowot/nx-pn add @scope/my-audit-plugin   # npm install-by-name
+ *   npx @flowot/nx-pn uninstall my-plugin          # remove by id or run id
  */
 
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
-import { npmInstallPlugin, uninstallNpmPlugin, startHost, type StartedHost } from '@api-audit/host'
+import { npmInstallPlugin, uninstallNpmPlugin, startHost, type StartedHost } from '@flowot/nx-pn-host'
 
 export const DEFAULT_PORT = 4560
 
@@ -109,7 +109,7 @@ export function printUsage(): void {
   // eslint-disable-next-line no-console
   console.log(`api-audit — local API audit workbench (cordis plugin platform)
 
-Usage: api-audit [command] [options]
+Usage: nx-pn [command] [options]        (npx @flowot/nx-pn <command>)
 
 Commands:
   add <spec>            Install a plugin by npm package name/spec

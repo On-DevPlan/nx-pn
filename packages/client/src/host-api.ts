@@ -11,7 +11,7 @@
  */
 
 import type { AuditRecord } from './types.js'
-import type { Manifest } from '@api-audit/core'
+import type { Manifest } from '@flowot/nx-pn-core'
 
 export type { AuditRecord } from './types.js'
 

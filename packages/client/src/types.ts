@@ -23,7 +23,7 @@ export interface AuditRecord {
   error?: { name: string; message: string }
 }
 
-/** core AuditResponse shape (mirrors @api-audit/core). */
+/** core AuditResponse shape (mirrors @flowot/nx-pn-core). */
 export interface AuditResponse {
   status: number
   statusText: string

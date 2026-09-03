@@ -1,7 +1,16 @@
 {
-  "name": "@api-audit/core",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@flowot/nx-pn-core",
+  "version": "0.1.0",
+  "description": "Pure contracts for the nx-pn plugin platform: Manifest, AuditClient, middleware vocabulary",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/On-DevPlan/nx-pn.git",
+    "directory": "packages/core"
+  },
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -12,7 +21,7 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["lib", "src/schema"],
+  "files": ["lib", "src/schema", "!lib/*.tsbuildinfo"],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",

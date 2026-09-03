@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { AuditRingBuffer } from '../client/ring-buffer.js'
 import { createAuditMiddleware, type ResEnvelope } from '../client/audit-middleware.js'
-import type { MiddlewareContext } from '@api-audit/core'
+import type { MiddlewareContext } from '@flowot/nx-pn-core'
 
 function fakeEnvelope(body: string, status = 200): ResEnvelope {
   return {

@@ -14,7 +14,7 @@
  * (not class arrow fields) per cordis's convention.
  */
 
-import type { Manifest } from '@api-audit/core'
+import type { Manifest } from '@flowot/nx-pn-core'
 
 import type { AuditRecord } from '../client/audit-record.js'
 import type { AuditRingBuffer } from '../client/ring-buffer.js'
