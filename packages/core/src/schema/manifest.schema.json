@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://api-audit.local/schemas/manifest.v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "version", "title", "halves"],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[\\w.]+)?$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "halves": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "host": { "$ref": "#/definitions/halfEntry" },
+        "browser": { "$ref": "#/definitions/halfEntry" }
+      }
+    },
+    "inject": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+      "uniqueItems": true
+    }
+  },
+  "definitions": {
+    "halfEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry"],
+      "properties": {
+        "entry": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-./]+\\.(js|jsx|ts|tsx)$"
+        },
+        "pages": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/pageDeclaration" },
+          "uniqueItems": true
+        },
+        "inject": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "pageDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "title"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^/[a-zA-Z0-9_\\-/.:]*$",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "icon": { "type": "string", "maxLength": 64 },
+        "order": { "type": "integer", "minimum": 0, "maximum": 10000 }
+      }
+    }
+  }
+}

@@ -16,3 +16,7 @@ export { MAX_BODY_BYTES } from './audit-client.js'
 // Middleware
 export type { Middleware, MiddlewareContext, Next } from './middleware.js'
 export { compose } from './middleware.js'
+
+// Manifest
+export type { Manifest, HalfEntry, PageDeclaration } from './manifest.js'
+export { validateManifest, MANIFEST_VERSION, MAX_ZIP_BYTES } from './manifest.js'
