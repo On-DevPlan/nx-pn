@@ -35,13 +35,10 @@ interface PageRow {
 
 describe('loadBrowserHalf (spec §5.2.1 — blob import → activate)', () => {
   it('loads a small ESM half; pages.register (with Component) lands and dispose removes it', async () => {
-    // cordis needs an explicit `inject: ['pages']` on the plugin value so it
-    // doesn't try to access `ctx.pages` before the service is in scope.
     const source = `const half = (ctx) => {
       const Component = () => null
       ctx.pages.register({ pluginId: 'p', path: '/x', title: 'X', Component })
     }
-half.inject = ['pages']
 export default half
 `
     stubObjectUrls(source)
@@ -68,6 +65,36 @@ export default half
     await expect(
       loadBrowserHalf({ ctx }, { id: 'bad', pluginRunId: 'run-2', code: 'export const nope = 1' }),
     ).rejects.toThrow(/default-export/)
+  })
+
+  it('loader declares inject:["pages"] so halves do not need to self-declare', async () => {
+    // Regression test for the "cannot get property 'pages' without inject" bug:
+    // the registration site (loader) must declare `inject: ['pages']` so a half
+    // source that simply does `ctx.pages.register(...)` (without setting
+    // `halfFn.inject = ['pages']` on itself) loads successfully against the real
+    // cordis Context.
+    const source = `const half = (ctx) => {
+      const Component = () => null
+      ctx.pages.register({ pluginId: 'opaque', path: '/opaque', title: 'Opaque', Component })
+    }
+export default half
+`
+    stubObjectUrls(source)
+
+    const ctx = await makeCtx()
+    const record = await loadBrowserHalf(
+      { ctx },
+      { id: 'opaque', pluginRunId: 'run-3', code: source },
+    )
+    expect(record.fiber).toBeDefined()
+
+    const pages = ctx.pages as unknown as { getSnapshot(): readonly PageRow[] }
+    const snap = pages.getSnapshot()
+    expect(snap).toHaveLength(1)
+    expect(snap[0]).toMatchObject({ pluginId: 'opaque', path: '/opaque', title: 'Opaque' })
+
+    await retractBrowserHalf({ ctx }, record)
+    expect(pages.getSnapshot()).toHaveLength(0)
   })
 
   it('documents the shared browser externals contract (spec §9.4 / §5.2.2)', () => {

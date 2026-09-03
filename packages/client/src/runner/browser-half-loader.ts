@@ -65,7 +65,7 @@ export async function activateBrowserHalf(
   if (typeof (ctx.registry?.plugin) !== 'function') {
     throw new Error(`browser-half ${meta.id}: ctx lacks a cordis registry (no ctx.registry.plugin)`)
   }
-  const fiber = ctx.registry.plugin(halfFn as never, { name: meta.id } as never) as unknown as Fiber
+  const fiber = ctx.registry.plugin({ inject: ['pages'], apply: halfFn } as never, { name: meta.id } as never) as unknown as Fiber
   // Wait for the half to settle; an apply error propagates to the caller
   // (the WS layer logs it — a bad half must not kill the page, spec §8.1).
   await (fiber.await as unknown as () => Promise<void>)()

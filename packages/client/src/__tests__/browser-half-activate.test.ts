@@ -29,7 +29,6 @@ describe('activateBrowserHalf (spec §5.2.1 step 4)', () => {
       registered = { pluginId: 'example-api', path: '/example-api', title: '示例 API', order: 200 }
       pages.register(registered)
     }
-    ;(halfFn as unknown as { inject: string[] }).inject = ['pages']
 
     const record: BrowserHalfRecord = await activateBrowserHalf(
       { ctx },
@@ -67,7 +66,6 @@ describe('activateBrowserHalf (spec §5.2.1 step 4)', () => {
         title: 'OK',
       })
     }
-    ;(goodHalf as unknown as { inject: string[] }).inject = ['pages']
     const record = await activateBrowserHalf({ ctx }, { id: 'ok', pluginRunId: 'run-3' }, goodHalf)
     expect(pages.getSnapshot().map((e) => e.path)).toEqual(['/ok'])
     await retractBrowserHalf({ ctx }, record)
