@@ -11,7 +11,7 @@
  *     → returns a BrowserRuntime handle
  */
 
-import { CordisContext, type Context } from './cordis/cordis-shim.js'
+import { CordisContext, type Context, type Fiber } from './cordis/cordis-shim.js'
 import { Pages, type PageRegistration } from './pages/pages-service.js'
 import { WsTransport } from './rpc/connection.js'
 import { RpcClient } from './rpc/rpc-client.js'
@@ -208,8 +208,15 @@ export class BrowserRuntime {
  */
 export async function connectRpc(opts: ConnectRpcOptions = {}): Promise<BrowserRuntimeHandle> {
   const ctx = opts.ctx ?? (new CordisContext() as Context)
-  // Pages service: register on the root context (first instance wins).
-  const pages = installPages(ctx)
+  // Pages service: register on the root context AND await the fiber so
+  // `ctx.pages` resolves to the live service instance before any caller
+  // (the web shell or a loaded browser half) reads it. Without the
+  // await the cordis service proxy is still empty and `runtime.pages`
+  // is undefined — exactly the singleton-wiring bug that made plugin
+  // pages invisible to the shell (the loader's `ctx.pages.register`
+  // resolves to a *different* instance than the one `connectRpc`
+  // returned). First instance wins per the comment in pages-service.ts.
+  const pages = await installPages(ctx)
 
   const url = opts.url ?? defaultWsUrl()
   const transport = new WsTransport({
@@ -281,10 +288,15 @@ function routeFrame(runtime: BrowserRuntime, frame: RpcFrame): void {
   }
 }
 
-function installPages(ctx: Context): Pages {
+async function installPages(ctx: Context): Promise<Pages> {
   let pages = ctx.pages as unknown as Pages | undefined
   if (!pages) {
-    ctx.registry.plugin(Pages)
+    const fiber = ctx.registry.plugin(Pages) as unknown as Fiber
+    // The fiber's `await` resolves once the Pages service is fully
+    // active and `ctx.pages` resolves to the live service proxy.
+    // Skipping this await leaves `ctx.pages` undefined and the shell
+    // sees an empty pages snapshot even after a successful install.
+    await fiber.await()
     pages = ctx.pages as unknown as Pages
   }
   return pages

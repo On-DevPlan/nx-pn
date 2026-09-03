@@ -1,6 +1,6 @@
-import { Component, Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ComponentType, type ReactNode } from 'react'
+import { Component, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
-import { connectRpc, type BrowserRuntimeHandle, type PageRegistration } from '@api-audit/client'
+import { connectRpc, fetchPluginList, installBrowserHalfFromHost, type BrowserRuntimeHandle, type PageRegistration } from '@api-audit/client'
 import { AuditPage } from './pages/AuditPage'
 import { ReplayPage } from './pages/ReplayPage'
 import { PluginsPage } from './pages/PluginsPage'
@@ -35,6 +35,71 @@ export function App() {
       handle?.close()
     }
   }, [])
+
+  // Install browser halves for every plugin currently loaded on the host.
+  // The WS snapshot path covers live pushes, but the static shell must
+  // also repopulate plugin pages on cold start (page refresh) — the host
+  // doesn't replay browser-half.load frames, only the manifest. We fetch
+  // the plugin list over REST, install each half, and subscribe to
+  // snapshot changes so live uploads/restarts refresh the page list too.
+  const installedRunIdsRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!runtime) return
+    const rt = runtime
+    let cancelled = false
+
+    async function installPlugin(id: string, pluginRunId: string): Promise<void> {
+      try {
+        if (cancelled) return
+        if (installedRunIdsRef.current.has(pluginRunId)) return
+        // Idempotency check via the shared Pages registry — if any path
+        // (WS reconcile, prior install, etc.) already registered a page
+        // for this plugin, skip and remember the runId so we don't retry.
+        const existing = rt.pages.getSnapshot().find((e) => e.pluginId === id)
+        if (existing) {
+          installedRunIdsRef.current.add(pluginRunId)
+          return
+        }
+        await installBrowserHalfFromHost(rt, { id })
+        installedRunIdsRef.current.add(pluginRunId)
+      } catch (err) {
+        // isolate — a bad half must not kill the UI
+        const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err)
+        console.warn(`[plugin-sync] failed to install browser half for ${id} (${pluginRunId}): ${msg}`)
+      }
+    }
+
+    async function bootInstall(): Promise<void> {
+      let plugins: Awaited<ReturnType<typeof fetchPluginList>>
+      try {
+        plugins = await fetchPluginList(HOST_BASE)
+      } catch {
+        return
+      }
+      if (cancelled) return
+      for (const p of plugins) {
+        if (!p.manifest.halves.browser?.entry) continue
+        void installPlugin(p.id, p.pluginRunId)
+      }
+    }
+
+    void bootInstall()
+
+    // Subscribe to snapshot changes so live uploads/restarts refresh pages
+    // even if the WS browser-half.load frame was missed (page hidden,
+    // reconnect, etc.).
+    const unsub = rt.onSnapshot((snap) => {
+      for (const p of snap.plugins) {
+        if (!p.manifest.halves.browser?.entry) continue
+        void installPlugin(p.id, p.pluginRunId)
+      }
+    })
+
+    return () => {
+      cancelled = true
+      unsub()
+    }
+  }, [runtime])
 
   // Subscribe to the Pages service the runtime owns (spec §5.3). Pages are
   // populated both by core built-ins (future work) and by every loaded
