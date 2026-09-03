@@ -50,4 +50,40 @@ describe('parseArgs (spec §2.2)', () => {
     const opts = parseArgs(['--port=0', '--data-dir=x', '--no-open'])
     expect(opts).toEqual({ port: 0, dataDir: resolve('x'), open: false })
   })
+
+  it('add <spec> sets the subcommand + spec', () => {
+    const opts = parseArgs(['add', '@scope/my-audit-plugin'])
+    expect(opts.subcommand).toBe('add')
+    expect(opts.spec).toBe('@scope/my-audit-plugin')
+    expect(opts.port).toBe(DEFAULT_PORT)
+  })
+
+  it('add accepts name@version and file: specs', () => {
+    expect(parseArgs(['add', 'pkg@1.2.3']).spec).toBe('pkg@1.2.3')
+    expect(parseArgs(['add', '--data-dir', 'x', 'file:./folder']).spec).toBe('file:./folder')
+  })
+
+  it('add without a spec throws', () => {
+    expect(() => parseArgs(['add'])).toThrow(/requires a plugin spec/)
+    expect(() => parseArgs(['add', '--no-open'])).toThrow(/requires a plugin spec/)
+  })
+
+  it('add rejects extra positionals', () => {
+    expect(() => parseArgs(['add', 'pkg', 'extra'])).toThrow(/unexpected argument/)
+  })
+
+  it('uninstall <id|runId> sets the subcommand + pluginId', () => {
+    const opts = parseArgs(['uninstall', 'run-3'])
+    expect(opts.subcommand).toBe('uninstall')
+    expect(opts.pluginId).toBe('run-3')
+    expect(parseArgs(['uninstall', 'my-plugin']).pluginId).toBe('my-plugin')
+  })
+
+  it('uninstall without an id throws', () => {
+    expect(() => parseArgs(['uninstall'])).toThrow(/requires a plugin id/)
+  })
+
+  it('unknown subcommands throw with a hint', () => {
+    expect(() => parseArgs(['fritz'])).toThrow(/unknown argument/)
+  })
 })
