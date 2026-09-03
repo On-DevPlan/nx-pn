@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { PluginSummary } from '@api-audit/client'
-import { fetchPluginList, stopPlugin, removePlugin, uploadPlugin, ApiError } from '@api-audit/client'
+import { fetchPluginList, stopPlugin, removePlugin, uploadPlugin, installPluginByName, ApiError } from '@api-audit/client'
 
 type PluginState = 'running' | 'stopping' | 'removing' | 'error'
 
@@ -23,6 +23,9 @@ const PLUGIN_STATE_TEXT: Record<PluginState, string> = {
 
 export function PluginsPage() {
   const [plugins, setPlugins] = useState<PluginRow[]>([])
+  const [spec, setSpec] = useState('')
+  const [installing, setInstalling] = useState(false)
+  const [installMsg, setInstallMsg] = useState<string | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadResult, setUploadResult] = useState<string | null>(null)
@@ -50,6 +53,25 @@ export function PluginsPage() {
     const id = window.setInterval(() => void refresh(), 3000)
     return () => window.clearInterval(id)
   }, [refresh])
+
+  async function onInstallByName(): Promise<void> {
+    const trimmed = spec.trim()
+    if (!trimmed) return
+    setInstalling(true)
+    setInstallMsg(null)
+    setError(null)
+    try {
+      const r = await installPluginByName('', trimmed)
+      setInstallMsg(`已安装 ${trimmed} → ${r.id}@${r.version}（${r.pluginRunId}）`)
+      setSpec('')
+      await refresh()
+    } catch (err) {
+      const msg = err instanceof ApiError ? `${err.code}: ${err.message}` : (err as Error).message
+      setError(`安装失败：${msg}`)
+    } finally {
+      setInstalling(false)
+    }
+  }
 
   async function onUpload(): Promise<void> {
     if (!file) return
@@ -99,7 +121,27 @@ export function PluginsPage() {
       {error && <div className="error-line">{error}</div>}
 
       <section className="card">
-        <h2>上传插件</h2>
+        <h2>按包名安装</h2>
+        <div className="upload-row">
+          <input
+            type="text"
+            placeholder="@scope/my-audit-plugin"
+            value={spec}
+            onChange={(e) => setSpec(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void onInstallByName()
+            }}
+          />
+          <button onClick={() => void onInstallByName()} disabled={!spec.trim() || installing}>
+            {installing ? '安装中…' : '安装'}
+          </button>
+        </div>
+        {installMsg && <div className="ok-line">{installMsg}</div>}
+        <div className="muted">npm 包名（如需指定版本：<span className="mono">pkg@1.2.3</span>），或本地 <span className="mono">file:./插件文件夹</span></div>
+      </section>
+
+      <section className="card">
+        <h2>或上传 zip</h2>
         <div className="upload-row">
           <input type="file" accept=".zip,application/zip" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           <button onClick={() => void onUpload()} disabled={!file || uploading}>
