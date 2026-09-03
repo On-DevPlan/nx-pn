@@ -1,5 +1,5 @@
-import { Component, Suspense, useCallback, useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react'
-import { NavLink, Navigate, Route, Routes, useSyncExternalStore } from 'react-router-dom'
+import { Component, Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ComponentType, type ReactNode } from 'react'
+import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { connectRpc, type BrowserRuntimeHandle, type PageRegistration } from '@api-audit/client'
 import { AuditPage } from './pages/AuditPage'
 import { ReplayPage } from './pages/ReplayPage'
