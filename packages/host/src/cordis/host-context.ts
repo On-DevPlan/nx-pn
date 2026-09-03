@@ -49,6 +49,21 @@ function requireDeps(): HostDeps {
   return currentDeps
 }
 
+/**
+ * Spec §7.4 attribution: when a *plugin* calls an auditClient method,
+ * cordis's caller-tracker binds `this.ctx` to the calling plugin's
+ * fiber. We resolve that fiber against the lifecycle registry (fiber
+ * uids are shared between the registry-returned wrapper and the raw
+ * fiber) to recover the plugin id. Root / built-in callers resolve to
+ * no entry → `'core'`.
+ */
+function callerInitiator(self: unknown): string | undefined {
+  const fiber = (self as { ctx?: { fiber?: { uid?: number | null } } }).ctx?.fiber
+  if (!fiber || typeof fiber.uid !== 'number' || fiber.uid <= 0) return undefined
+  const entry = requireDeps().lifecycle.list().find((e) => e.fiber.uid === fiber.uid)
+  return entry?.id
+}
+
 // ---------------------------------------------------------------- auditClient
 
 export interface AuditClientService {
@@ -74,20 +89,25 @@ export class AuditClientService extends CordisService {
 }
 
 const auditClientProto = AuditClientService.prototype as unknown as Record<string, unknown>
-auditClientProto.get = function (url: string, config?: Parameters<HostAuditClient['get']>[1]) {
-  return requireDeps().client.get(url, config)
+auditClientProto.get = function (this: unknown, url: string, config?: Parameters<HostAuditClient['get']>[1]) {
+  const initiator = callerInitiator(this)
+  return requireDeps().client.get(url, initiator ? { ...config, initiator } : config)
 }
-auditClientProto.post = function (url: string, body?: unknown, config?: Parameters<HostAuditClient['post']>[2]) {
-  return requireDeps().client.post(url, body as never, config)
+auditClientProto.post = function (this: unknown, url: string, body?: unknown, config?: Parameters<HostAuditClient['post']>[2]) {
+  const initiator = callerInitiator(this)
+  return requireDeps().client.post(url, body as never, initiator ? { ...config, initiator } : config)
 }
-auditClientProto.put = function (url: string, body?: unknown, config?: Parameters<HostAuditClient['put']>[2]) {
-  return requireDeps().client.put(url, body as never, config)
+auditClientProto.put = function (this: unknown, url: string, body?: unknown, config?: Parameters<HostAuditClient['put']>[2]) {
+  const initiator = callerInitiator(this)
+  return requireDeps().client.put(url, body as never, initiator ? { ...config, initiator } : config)
 }
-auditClientProto.patch = function (url: string, body?: unknown, config?: Parameters<HostAuditClient['patch']>[2]) {
-  return requireDeps().client.patch(url, body as never, config)
+auditClientProto.patch = function (this: unknown, url: string, body?: unknown, config?: Parameters<HostAuditClient['patch']>[2]) {
+  const initiator = callerInitiator(this)
+  return requireDeps().client.patch(url, body as never, initiator ? { ...config, initiator } : config)
 }
-auditClientProto.delete = function (url: string, config?: Parameters<HostAuditClient['delete']>[1]) {
-  return requireDeps().client.delete(url, config)
+auditClientProto.delete = function (this: unknown, url: string, config?: Parameters<HostAuditClient['delete']>[1]) {
+  const initiator = callerInitiator(this)
+  return requireDeps().client.delete(url, initiator ? { ...config, initiator } : config)
 }
 
 // ----------------------------------------------------------------- auditStore

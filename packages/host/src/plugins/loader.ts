@@ -109,28 +109,11 @@ export class PluginLoader {
       throw new LoaderError('compile/no-export', 'host half must default-export a function (ctx) => ...')
     }
 
-    // (7) Load into cordis; await fiber activation.
-    let fiber: Fiber | undefined
-    try {
-      const result = this.deps.ctx.registry.plugin(halfFn as never, { name: id } as never) as Fiber
-      fiber = result
-      // Wait for the plugin to settle (activation or error). `fiber.await()`
-      // is a promise; we cast through unknown to avoid TS's recursive
-      // thenable inference.
-      await (fiber.await as unknown as () => Promise<void>)()
-    } catch (err) {
-      // §4.4.1 failure path: dispose the fiber before rethrowing.
-      if (fiber) {
-        try {
-          await fiber.dispose()
-        } catch {
-          // swallow — original error takes precedence
-        }
-      }
-      throw new LoaderError('plugin/runtime-error', (err as Error).message)
-    }
-
-    // (8) Register.
+    // (7) Load into cordis; register BEFORE awaiting activation so the
+    // plugin is attributable (callerInitiator matches the lifecycle
+    // registry by fiber uid) from its very first apply-time call. On
+    // failure the entry is evicted again.
+    const fiber = this.deps.ctx.registry.plugin(halfFn as never, { name: id } as never) as Fiber
     const pluginRunId = this.deps.lifecycle.nextRunId()
     this.deps.lifecycle.register({
       id,
@@ -139,6 +122,20 @@ export class PluginLoader {
       zipPath,
       manifest,
     })
+    try {
+      // Wait for the plugin to settle (activation or error). `fiber.await()`
+      // is a promise; we cast through unknown to avoid TS's recursive
+      // thenable inference.
+      await (fiber.await as unknown as () => Promise<void>)()
+    } catch (err) {
+      // §4.4.1 failure path: dispose the fiber and evict before rethrowing.
+      try {
+        await this.deps.lifecycle.remove(pluginRunId)
+      } catch {
+        // swallow — original error takes precedence
+      }
+      throw new LoaderError('plugin/runtime-error', (err as Error).message)
+    }
 
     return {
       id,

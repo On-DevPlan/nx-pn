@@ -40,6 +40,13 @@ export interface RunConfig {
   headers?: Record<string, string>
   signal?: AbortSignal
   timeoutMs?: number
+  /**
+   * Audit initiator override. The cordis `auditClient` service sets this
+   * from the calling plugin's fiber (spec §7.4 attribution); direct
+   * callers leave it unset and get `'core'`. Replay uses
+   * `client.request(ctx)` with an explicit initiator instead.
+   */
+  initiator?: string
 }
 
 export class HostAuditClient {
@@ -129,7 +136,7 @@ export class HostAuditClient {
     const ctx: MiddlewareContext = {
       method,
       url,
-      initiator: 'core',
+      initiator: config?.initiator ?? 'core',
       headers,
     }
     if (bodyStr !== undefined) ctx.body = bodyStr
