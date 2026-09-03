@@ -45,10 +45,22 @@ await build({
   format: 'esm',
   target: 'es2022',
   jsx: 'automatic',
-  external: ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client', 'cordis'],
+  external: ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client', 'react-router-dom', 'cordis'],
   outfile: join(dist, 'browser.js'),
   logLevel: 'silent',
 })
+
+// Spec contract: the compiled browser half must NOT bundle React — the
+// app's import map resolves bare `react` imports to the shared
+// vendor chunk (apps/web/dist/vendor/react.js). Failing this assertion
+// would silently double-React and break every hook call.
+const compiledBrowser = await readFile(join(dist, 'browser.js'), 'utf-8')
+if (!/from\s*["']react["']/.test(compiledBrowser)) {
+  throw new Error(`example-api: compiled browser.js must keep React external (expected a bare 'from "react"' import, got none)`)
+}
+if (!/from\s*["']react-router-dom["']/.test(compiledBrowser)) {
+  throw new Error(`example-api: compiled browser.js must keep react-router-dom external (expected a bare 'from "react-router-dom"' import)`)
+}
 
 await writeFile(join(dist, 'manifest.json'), await readFile(join(root, 'manifest.json')))
 
