@@ -13,6 +13,8 @@ export interface LifecycleEntry {
   fiber: Fiber
   /** Absolute path to the loaded .zip, if known. */
   zipPath?: string
+  /** Compiled browser-half ESM source (if the manifest declares one). */
+  browserSource?: string
   /** Manifest snapshot for list endpoints. */
   manifest: import('@api-audit/core').Manifest
 }

@@ -1,6 +1,7 @@
 /**
  * /api/plugins — list, stop/remove, AND the install-by-name family:
  *   GET  /api/plugins                 → list
+ *   GET  /api/plugins/:runId/browser-source → compiled browser-half ESM text
  *   POST /api/plugins                 → multipart zip upload (see upload-route)
  *   POST /api/plugins/install         → { spec } → npm install-by-name
  *   POST /api/plugins/:runId/stop     → fiber.dispose()
@@ -48,6 +49,24 @@ export async function handlePluginRoute(deps: PluginRouteDeps, req: IncomingMess
     return
   }
 
+  // GET /api/plugins/:pluginRunId/browser-source → compiled browser-half ESM
+  // text (the web shell feeds it to loadBrowserHalf; spec §5.2.2 path).
+  if (segments.length === 4 && segments[3] === 'browser-source') {
+    if (req.method !== 'GET') {
+      sendText(res, 405, 'method not allowed')
+      return
+    }
+    const entry = deps.lifecycle.byRunId(segments[2]!)
+    if (!entry || !entry.browserSource) {
+      sendJson(res, 404, { ok: false, error: { code: 'plugin/no-browser-source', message: 'plugin has no compiled browser half' } })
+      return
+    }
+    res.statusCode = 200
+    res.setHeader('content-type', 'application/javascript; charset=utf-8')
+    res.end(entry.browserSource)
+    return
+  }
+
   // POST /api/plugins/install  { spec: string }
   if (segments.length === 3 && segments[2] === 'install') {
     if (req.method !== 'POST') {
@@ -68,6 +87,11 @@ export async function handlePluginRoute(deps: PluginRouteDeps, req: IncomingMess
     }
     try {
       const r = await deps.installNpm(spec)
+      // Push the freshly-installed browser half to every connected web shell
+      // so the plugin's pages appear without a reload (spec §5.2.1).
+      if (r.browserSource) {
+        deps.browserHalfPusher.load({ id: r.id, pluginRunId: r.pluginRunId, code: r.browserSource })
+      }
       sendJson(res, 201, {
         ok: true,
         data: { id: r.id, pluginRunId: r.pluginRunId, name: r.name, version: r.version },

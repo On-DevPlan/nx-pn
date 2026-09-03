@@ -49,6 +49,8 @@ export interface LoadResult {
   compiledPath: string
   /** Optional path to the persisted .zip. */
   zipPath: string
+  /** Compiled browser-half ESM source (if the manifest declares one). */
+  browserSource?: string
 }
 
 export class PluginLoader {
@@ -79,6 +81,24 @@ export class PluginLoader {
     const hostEntryName = manifest.halves.host.entry
     if (!hostEntryName) {
       throw new LoaderError('manifest/no-host-half', 'manifest.halves.host.entry is required')
+    }
+
+    // (3c) Extract the compiled browser-half ESM source (if declared) so the
+    // web shell can fetch it (GET /api/plugins/:runId/browser-source) and the
+    // upload route can push it straight away. Missing entry → not a hard error
+    // (a browser half is optional); malformed entry → surface the zip error.
+    let browserSource: string | undefined
+    const browserEntryName = manifest.halves.browser?.entry
+    if (browserEntryName) {
+      try {
+        const raw = await readEntryFromZipFile(zipPath, browserEntryName)
+        browserSource = Buffer.from(raw).toString('utf-8')
+      } catch (err) {
+        if (err instanceof LoaderError && err.code === 'zip/missing-entry') {
+          throw new LoaderError('manifest/missing-browser-entry', `manifest.halves.browser.entry "${browserEntryName}" missing from zip`)
+        }
+        throw err
+      }
     }
 
     // Materialise the host entry source from the zip so esbuild can read it.
@@ -121,6 +141,7 @@ export class PluginLoader {
       fiber,
       zipPath,
       manifest,
+      ...(browserSource !== undefined ? { browserSource } : {}),
     })
     try {
       // Wait for the plugin to settle (activation or error). `fiber.await()`
@@ -143,6 +164,7 @@ export class PluginLoader {
       manifest,
       compiledPath: compileResult.outputPath,
       zipPath,
+      ...(browserSource !== undefined ? { browserSource } : {}),
     }
   }
 

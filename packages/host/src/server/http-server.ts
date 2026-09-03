@@ -7,6 +7,7 @@
  *   POST /api/plugins          → handleUploadPlugin
  *   POST /api/plugins/install  → handlePluginRoute (npm install-by-name)
  *   GET  /api/plugins          → handlePluginRoute (list)
+ *   GET  /api/plugins/:runId/browser-source → handlePluginRoute (browser half)
  *   POST /api/plugins/:id/{stop|remove|uninstall} → handlePluginRoute
  *   GET  /                     → frontend-static (or 503 if dist missing)
  *   GET  /assets/*             → frontend-static
@@ -113,7 +114,11 @@ async function handle(
       if (req.method === 'GET') {
         await handlePluginRoute(deps, req, res, '/api/plugins')
       } else if (req.method === 'POST') {
-        await handleUploadPlugin(deps, req, res)
+        await handleUploadPlugin(
+          { loader: deps.loader, browserHalfPusher: deps.browserHalfPusher },
+          req,
+          res,
+        )
       } else {
         sendJson(res, 405, { ok: false, error: { code: 'method/not-allowed', message: 'GET or POST only' } })
       }

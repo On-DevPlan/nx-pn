@@ -10,8 +10,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { sendJson, sendText } from './http-utils.js'
 import type { PluginLoader } from '../plugins/loader.js'
 import { LoaderError } from '../plugins/loader.js'
+import type { BrowserHalfPusher } from '../ws/browser-half-pusher.js'
 
-export function handleUploadPlugin(deps: { loader: PluginLoader }, req: IncomingMessage, res: ServerResponse): void {
+export function handleUploadPlugin(deps: { loader: PluginLoader; browserHalfPusher: BrowserHalfPusher }, req: IncomingMessage, res: ServerResponse): void {
   const ctype = (req.headers['content-type'] ?? '').toString()
   const m = ctype.match(/boundary=(?:"([^"]+)"|([^;]+))/i)
   if (!m) {
@@ -37,6 +38,11 @@ export function handleUploadPlugin(deps: { loader: PluginLoader }, req: Incoming
         return
       }
       const result = await deps.loader.load({ zipBytes })
+      // Push the freshly-loaded browser half to every connected web shell so
+      // the plugin's pages appear without a reload (spec §5.2.1).
+      if (result.browserSource) {
+        deps.browserHalfPusher.load({ id: result.id, pluginRunId: result.pluginRunId, code: result.browserSource })
+      }
       sendJson(res, 201, {
         ok: true,
         data: {

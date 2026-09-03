@@ -23,7 +23,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest'
 import { build } from 'esbuild'
-import { mkdtemp, rm, writeFile, realpath } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Buffer } from 'node:buffer'
@@ -33,6 +33,13 @@ import { startHost, type StartedHost } from '../index.js'
 import { importCompiledModule } from '../plugins/host-compiler.js'
 
 const PLUGIN_DIR = fileURLToPath(new URL('../../../../plugins/example-api/', import.meta.url))
+// The compiled browser half imports `react`, `react/jsx-runtime`, and
+// `react-router-dom` as bare specifiers (spec §5.2.2 — they must NOT be
+// bundled, the app resolves them via its import map). To evaluate that
+// module in Node, the temp file must sit in a directory whose
+// node_modules walk-up finds the real React stack — `apps/web/` carries
+// them via pnpm hoisting, so we write the temp file under there.
+const EVAL_DIR = join(PLUGIN_DIR, '..', '..', 'apps', 'web', '.tmp-browser-half-eval')
 
 const handles: StartedHost[] = []
 const upstreams: Server[] = []
@@ -228,8 +235,9 @@ describe('hot-add e2e — example-api plugin (spec §7 / §9.2)', () => {
 
     // ── 3. browser half: pages.register contract honoured ──────────
     const { browserJs } = await compilePluginHalves()
-    const osTmp = await realpath(tmpdir())
-    const tmpMod = join(osTmp, `api-audit-browser-half-${Date.now()}.mjs`)
+    await mkdir(EVAL_DIR, { recursive: true })
+    const evalDir = await mkdtemp(join(EVAL_DIR, 'run-'))
+    const tmpMod = join(evalDir, 'browser-half.mjs')
     await writeFile(tmpMod, browserJs, 'utf-8')
     const mod = await importCompiledModule(tmpMod)
     const registered: Array<{ pluginId?: string; path?: string; title?: string; order?: number }> = []
@@ -245,7 +253,7 @@ describe('hot-add e2e — example-api plugin (spec §7 / §9.2)', () => {
       title: '示例 API',
       order: 200,
     })
-    await rm(tmpMod, { force: true })
+    await rm(evalDir, { recursive: true, force: true })
 
     // ── 4. stop → fiber disposed, tool dead; remove → gone ─────────
     const stopRes = await fetch(`http://127.0.0.1:${host.port}/api/plugins/${first.pluginRunId}/stop`, { method: 'POST' })

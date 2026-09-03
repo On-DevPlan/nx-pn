@@ -57,6 +57,8 @@ export interface NpmInstallResult {
   entryPath: string
   manifest: Manifest
   registryDir: string
+  /** Compiled browser-half ESM source (if the package declares a browser half). */
+  browserSource?: string
 }
 
 export interface LedgerEntry {
@@ -123,6 +125,19 @@ export async function npmInstallPlugin(opts: NpmInstallPluginOptions): Promise<N
     throw new InstallerError('install/no-export', 'host half must default-export a function (ctx) => ...')
   }
 
+  // (4b) Read the compiled browser-half ESM source (if declared) so the web
+  // shell can render its pages (GET /api/plugins/:runId/browser-source).
+  // npm delivers compiled JS already — the file is read verbatim.
+  let browserSource: string | undefined
+  const browserEntryName = manifest.halves.browser?.entry
+  if (browserEntryName) {
+    try {
+      browserSource = await readFile(join(pkgDir, browserEntryName), 'utf-8')
+    } catch (err) {
+      throw new InstallerError('install/missing-browser-entry', `browser half "${browserEntryName}" not found in ${pkgDir}: ${(err as Error).message}`)
+    }
+  }
+
   // (5) Upsert: evict any running instance of the same manifest id so
   // re-install / upgrade leaves exactly one live fiber.
   for (const existing of opts.lifecycle.list()) {
@@ -135,7 +150,13 @@ export async function npmInstallPlugin(opts: NpmInstallPluginOptions): Promise<N
   // plugin is attributable from its first apply-time auditClient call.
   const fiber = opts.ctx.registry.plugin(halfFn as never, { name: id } as never) as Fiber
   const pluginRunId = opts.lifecycle.nextRunId()
-  opts.lifecycle.register({ id, pluginRunId, fiber, manifest })
+  opts.lifecycle.register({
+    id,
+    pluginRunId,
+    fiber,
+    manifest,
+    ...(browserSource !== undefined ? { browserSource } : {}),
+  })
   try {
     await (fiber.await as unknown as () => Promise<void>)()
   } catch (err) {
@@ -152,7 +173,16 @@ export async function npmInstallPlugin(opts: NpmInstallPluginOptions): Promise<N
   ledger[id] = { spec, name, version: manifest.version, installedAt: new Date().toISOString() }
   await writeLedger(registryDir, ledger)
 
-  return { id, pluginRunId, name, version: manifest.version, entryPath, manifest, registryDir }
+  return {
+    id,
+    pluginRunId,
+    name,
+    version: manifest.version,
+    entryPath,
+    manifest,
+    registryDir,
+    ...(browserSource !== undefined ? { browserSource } : {}),
+  }
 }
 
 /**
