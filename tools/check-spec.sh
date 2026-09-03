@@ -78,6 +78,22 @@ check_no_undici_imports_in_core() {
 
 check_no_undici_imports_in_core
 
+check_no_node_builtins_in_client_src() {
+  # Spec §5: packages/client is the *browser* runtime. Node builtin imports
+  # (node:fs, node:path, ws, …) in client src would break browser bundling.
+  # Test files may import Node builtins where they simulate the browser.
+  local hits
+  hits=$(rg -n "from ['\"]node:|from ['\"]ws['\"]|from ['\"]undici['\"]" \
+    packages/client/src --glob '!**/__tests__/**' || true)
+  if [ -n "$hits" ]; then
+    echo "FAIL: packages/client/src must not import Node builtins (spec §5 — browser runtime):"
+    echo "$hits"
+    failed=1
+  fi
+}
+
+check_no_node_builtins_in_client_src
+
 if [ "$failed" -ne 0 ]; then
   exit 1
 fi

@@ -9,9 +9,9 @@
     "pnpm": ">=9.0.0"
   },
   "scripts": {
-    "build": "pnpm exec nx run-many -t build",
-    "test": "pnpm exec nx run-many -t test",
-    "lint": "pnpm exec nx run-many -t lint",
+    "build": "pnpm exec nx run-many -t build --parallel=1",
+    "test": "pnpm exec nx run-many -t test --parallel=1",
+    "lint": "pnpm exec nx run-many -t lint --parallel=1",
     "check:spec": "bash tools/check-spec.sh"
   },
   "devDependencies": {
