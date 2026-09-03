@@ -46,6 +46,38 @@ check_no_cordis_dir_in_core
 check_no_cordis_augmentation_in_core
 check_no_arrow_register_in_pages
 
+check_no_browser_globals_in_host() {
+  # Spec §4: the host package runs on Node. Referencing the browser DOM
+  # globals (window/document/Blob/URL.createObjectURL) in host source
+  # means code that can never run server-side slipped into the runtime.
+  # Test files may use them where the browser half is simulated, but
+  # host *src* must not.
+  local hits
+  hits=$(rg -n '\b(window|document|navigator)\b|createObjectURL|localStorage|sessionStorage' \
+    packages/host/src --glob '!**/__tests__/**' || true)
+  if [ -n "$hits" ]; then
+    echo "FAIL: packages/host/src must not reference browser-only globals (spec §4 — Node runtime):"
+    echo "$hits"
+    failed=1
+  fi
+}
+
+check_no_browser_globals_in_host
+
+check_no_undici_imports_in_core() {
+  # core is a pure contract layer with zero runtime deps beyond ajv;
+  # undici (host's HTTP client) must never be imported there.
+  local hits
+  hits=$(rg -n "from ['\"]undici['\"]|import\(['\"]undici['\"]\)" packages/core/src/ || true)
+  if [ -n "$hits" ]; then
+    echo "FAIL: packages/core must not import undici (spec §3 — pure contracts):"
+    echo "$hits"
+    failed=1
+  fi
+}
+
+check_no_undici_imports_in_core
+
 if [ "$failed" -ne 0 ]; then
   exit 1
 fi
