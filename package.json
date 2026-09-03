@@ -11,7 +11,8 @@
   "scripts": {
     "build": "pnpm exec nx run-many -t build",
     "test": "pnpm exec nx run-many -t test",
-    "lint": "pnpm exec nx run-many -t lint"
+    "lint": "pnpm exec nx run-many -t lint",
+    "check:spec": "bash tools/check-spec.sh"
   },
   "devDependencies": {
     "nx": "19.8.6",
