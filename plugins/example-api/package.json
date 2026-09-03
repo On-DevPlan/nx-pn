@@ -1,0 +1,16 @@
+{
+  "name": "example-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Demo dual-half zip plugin for api-audit (host + browser halves).",
+  "scripts": {
+    "build": "tsc --noEmit && node scripts/build-zip.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "esbuild": "^0.24.0",
+    "typescript": "5.6.3"
+  }
+}
