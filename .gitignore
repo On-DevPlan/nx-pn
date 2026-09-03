@@ -1,0 +1,13 @@
+node_modules/
+dist/
+lib/
+coverage/
+.nx/cache
+.nx/workspace-data
+*.log
+.DS_Store
+Thumbs.db
+.env
+.env.local
+data-dir/
+.superpowers/
