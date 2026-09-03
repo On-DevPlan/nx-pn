@@ -8,12 +8,31 @@ importers:
 
   .:
     devDependencies:
+      '@api-audit/cli':
+        specifier: workspace:^
+        version: link:apps/cli
       nx:
         specifier: 19.8.6
         version: 19.8.6
       typescript:
         specifier: 5.6.3
         version: 5.6.3
+
+  apps/cli:
+    dependencies:
+      '@api-audit/host':
+        specifier: workspace:^
+        version: link:../../packages/host
+    devDependencies:
+      '@types/node':
+        specifier: ^22.7.0
+        version: 22.20.1
+      typescript:
+        specifier: 5.6.3
+        version: 5.6.3
+      vitest:
+        specifier: 2.1.5
+        version: 2.1.5(@types/node@22.20.1)
 
   apps/web:
     dependencies:
@@ -120,6 +139,18 @@ importers:
       vitest:
         specifier: 2.1.5
         version: 2.1.5(@types/node@22.20.1)
+
+  plugins/example-api:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.7.0
+        version: 22.20.1
+      esbuild:
+        specifier: ^0.24.0
+        version: 0.24.2
+      typescript:
+        specifier: 5.6.3
+        version: 5.6.3
 
 packages:
 
