@@ -1,0 +1,102 @@
+name: Publish to npm
+
+# Push-to-master release: build → test → tag → publish the @flowot/nx-pn
+# family. Idempotent — re-pushing the same commit (or re-running) skips
+# packages whose version is already on the registry.
+#
+# Versions are uniform across the family (dsh model); one git tag v$VERSION
+# marks the release. `pnpm pack` rewrites workspace:^ to the real semver,
+# `npm publish --provenance` signs the tarball (public repo → OIDC, no setup).
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write # pushing the release tag
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tag detection needs full history
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4 # reads packageManager from package.json
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./apps/cli/package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Verify uniform family version
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          for d in packages/core packages/client apps/web packages/host apps/nx-pn; do
+            nv=$(node -p "require('./$d/package.json').version")
+            if [ "$nv" != "$v" ]; then
+              echo "::error::version mismatch in $d ($nv != $v) — the family must share one version"
+              exit 1
+            fi
+          done
+          echo "family uniform at $v"
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          if git rev-parse "refs/tags/${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create and push tag
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Publish to npm (idempotent, per-package)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p .release
+          # Topo order: core → client → web → host → cli → unscoped alias
+          for d in packages/core packages/client apps/web packages/host apps/cli apps/nx-pn; do
+            name=$(node -p "require('./$d/package.json').name")
+            version=$(node -p "require('./$d/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "• $name@$version already published — skipping"
+              continue
+            fi
+            echo "• packing $name@$version"
+            tb=$( (cd "$d" && pnpm pack --pack-destination ../../.release) | tail -n 1 )
+            echo "• publishing $name@$version ($tb)"
+            npm publish "$tb" --provenance --access public
+          done
+          echo "release complete"
