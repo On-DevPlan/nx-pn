@@ -12,3 +12,7 @@ export const CORE_API_VERSION = '0.0.0'
 // AuditClient
 export type { AuditClient, AuditResponse, RequestConfig } from './audit-client.js'
 export { MAX_BODY_BYTES } from './audit-client.js'
+
+// Middleware
+export type { Middleware, MiddlewareContext, Next } from './middleware.js'
+export { compose } from './middleware.js'
