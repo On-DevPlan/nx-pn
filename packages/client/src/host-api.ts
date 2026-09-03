@@ -109,6 +109,32 @@ export function removePlugin(base: string, pluginRunId: string): Promise<void> {
   return request<void>(`${base}/api/plugins/${encodeURIComponent(pluginRunId)}/remove`, { method: 'POST' })
 }
 
+/** POST /api/plugins/:runId/uninstall — remove + drop from the npm ledger. */
+export function uninstallPlugin(base: string, pluginRunId: string): Promise<void> {
+  return request<void>(`${base}/api/plugins/${encodeURIComponent(pluginRunId)}/uninstall`, { method: 'POST' })
+}
+
+/** Result of POST /api/plugins/install. */
+export interface PluginInstallResult {
+  id: string
+  pluginRunId: string
+  name: string
+  version: string
+}
+
+/**
+ * POST /api/plugins/install — install a plugin by npm package name/spec
+ * (the npx-plugin primary path). Returns 201 with { id, pluginRunId, name,
+ * version } on success.
+ */
+export function installPluginByName(base: string, spec: string): Promise<PluginInstallResult> {
+  return request<PluginInstallResult>(`${base}/api/plugins/install`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ spec }),
+  })
+}
+
 /**
  * POST /api/plugins — multipart upload of a plugin zip (field name `zip`).
  * Returns 201 with { id, pluginRunId, manifest } on success.

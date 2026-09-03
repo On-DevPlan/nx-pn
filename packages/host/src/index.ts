@@ -17,6 +17,11 @@ import { HostAuditClient } from './client/audit-client.js'
 import { PluginLifecycle } from './plugins/lifecycle.js'
 import { PluginLoader } from './plugins/loader.js'
 import {
+  npmInstallPlugin,
+  restartNpmPlugins,
+  uninstallNpmPlugin,
+} from './plugins/installer.js'
+import {
   installCoreServices,
   setHostDeps,
   clearHostDeps,
@@ -99,6 +104,11 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
     loader,
     lifecycle,
     browserHalfPusher,
+    installNpm: (spec: string) => npmInstallPlugin({ spec, dataDir: opts.dataDir, ctx, lifecycle }),
+    uninstallNpm: async (pluginRunId: string) => {
+      const entry = lifecycle.byRunId(pluginRunId)
+      if (entry) await uninstallNpmPlugin({ id: entry.id, dataDir: opts.dataDir })
+    },
   }, { ...(opts.port !== undefined ? { port: opts.port } : {}), ...(opts.host !== undefined ? { host: opts.host } : {}) })
   http.server.on('upgrade', (req, socket, head) => {
     const url = req.url ?? ''
@@ -124,6 +134,12 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
       await loader.restartFromDataDir()
     } catch {
       // already logged
+    }
+    // install-by-name plugins: replay the npm registry ledger (best-effort).
+    try {
+      await restartNpmPlugins({ dataDir: opts.dataDir, ctx, lifecycle })
+    } catch {
+      // offline / broken spec — host still boots
     }
   }
 
@@ -153,4 +169,6 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
 }
 
 export { PluginLoader, PluginLifecycle, HostAuditClient, AuditRingBuffer, WsHostServer }
+export { npmInstallPlugin, restartNpmPlugins, uninstallNpmPlugin, InstallerError, PLUGINS_REGISTRY_DIR } from './plugins/installer.js'
+export type { NpmInstallResult, NpmInstallPluginOptions, LedgerEntry } from './plugins/installer.js'
 export type { AuditRecord } from './client/audit-record.js'

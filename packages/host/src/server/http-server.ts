@@ -5,8 +5,9 @@
  *   GET  /api/audit            → handleAuditRoute
  *   POST /api/replay           → handleReplayRoute
  *   POST /api/plugins          → handleUploadPlugin
+ *   POST /api/plugins/install  → handlePluginRoute (npm install-by-name)
  *   GET  /api/plugins          → handlePluginRoute (list)
- *   POST /api/plugins/:id/{stop|remove} → handlePluginRoute
+ *   POST /api/plugins/:id/{stop|remove|uninstall} → handlePluginRoute
  *   GET  /                     → frontend-static (or 503 if dist missing)
  *   GET  /assets/*             → frontend-static
  *   WS   /ws                   → ws-server upgrade (handled by startHost)
