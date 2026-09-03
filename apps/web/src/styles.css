@@ -325,6 +325,32 @@ textarea {
   font-size: 12px;
 }
 
+.sort-toggle,
+.th-sort {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.sort-toggle:hover,
+.th-sort:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.th-sort {
+  border: none;
+  background: none;
+  padding: 0;
+  font-weight: 600;
+}
+
 /* ── drawer ─────────────────────────────────────────── */
 
 .drawer-mask {

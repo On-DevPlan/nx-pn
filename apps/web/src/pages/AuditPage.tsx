@@ -46,19 +46,28 @@ export function AuditPage({ runtime }: { runtime: BrowserRuntimeHandle | null })
   const [initiatorFilter, setInitiatorFilter] = useState('')
   const [text, setText] = useState('')
   const [selected, setSelected] = useState<AuditRecord | null>(null)
+  /** 排序方向；默认最新在前（desc），可切换为时间正序（asc）。 */
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+
+  const toggleSort = useCallback(
+    () => setSortDir((d) => (d === 'desc' ? 'asc' : 'desc')),
+    [],
+  )
 
   const filtered = useMemo(() => {
     const q = text.trim().toLowerCase()
-    return records.filter((r) => {
-      if (methodFilter && r.method !== methodFilter) return false
-      if (initiatorFilter && !r.initiator.toLowerCase().includes(initiatorFilter.toLowerCase())) return false
-      if (q) {
-        const hay = `${r.url} ${r.initiator} ${r.statusText}`.toLowerCase()
-        if (!hay.includes(q)) return false
-      }
-      return true
-    })
-  }, [records, methodFilter, initiatorFilter, text])
+    return records
+      .filter((r) => {
+        if (methodFilter && r.method !== methodFilter) return false
+        if (initiatorFilter && !r.initiator.toLowerCase().includes(initiatorFilter.toLowerCase())) return false
+        if (q) {
+          const hay = `${r.url} ${r.initiator} ${r.statusText}`.toLowerCase()
+          if (!hay.includes(q)) return false
+        }
+        return true
+      })
+      .sort((a, b) => (sortDir === 'desc' ? b.ts - a.ts : a.ts - b.ts))
+  }, [records, methodFilter, initiatorFilter, text, sortDir])
 
   return (
     <div className="page">
@@ -80,13 +89,25 @@ export function AuditPage({ runtime }: { runtime: BrowserRuntimeHandle | null })
           onChange={(e) => setInitiatorFilter(e.target.value)}
         />
         <input placeholder="搜索 URL / 状态" value={text} onChange={(e) => setText(e.target.value)} />
+        <button
+          type="button"
+          className="sort-toggle"
+          onClick={toggleSort}
+          title={sortDir === 'desc' ? '当前：最新在前，点击切换为时间正序' : '当前：时间正序，点击切换为最新在前'}
+        >
+          {sortDir === 'desc' ? '最新在前 ↓' : '时间顺序 ↑'}
+        </button>
         <span className="count">共 {filtered.length} 条</span>
       </div>
 
       <table className="table">
         <thead>
           <tr>
-            <th>时间</th>
+            <th>
+              <button type="button" className="th-sort" onClick={toggleSort}>
+                时间 {sortDir === 'desc' ? '↓' : '↑'}
+              </button>
+            </th>
             <th>发起方</th>
             <th>方法</th>
             <th>URL</th>
