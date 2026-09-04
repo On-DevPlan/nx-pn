@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "devctr-kv",
+  "version": "1.0.0",
+  "title": "DevCtr KV 管理",
+  "halves": {
+    "host": { "entry": "host.js" },
+    "browser": {
+      "entry": "browser.js",
+      "pages": [
+        {
+          "path": "/devctr-kv",
+          "title": "DevCtr KV",
+          "layout": "fullscreen",
+          "routes": [
+            { "path": "/" },
+            { "path": "/groups" },
+            { "path": "/keys" },
+            { "path": "/user" }
+          ]
+        }
+      ]
+    }
+  }
+}
