@@ -1,0 +1,30 @@
+{
+  "name": "@flowot/nx-pn-storage-json",
+  "version": "0.3.0",
+  "description": "JSON file KV storage backend for the nx-pn storage hub: single-document and per-record layouts, atomic publish (dsh storage-family port)",
+  "license": "MIT",
+  "publishConfig": { "access": "public" },
+  "repository": { "type": "git", "url": "git+https://github.com/On-DevPlan/nx-pn.git", "directory": "packages/storage/storage-json" },
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
+    "./package.json": "./package.json"
+  },
+  "files": ["lib", "!lib/*.tsbuildinfo"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@flowot/nx-pn-storage": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "typescript": "5.6.3",
+    "vitest": "2.1.5"
+  }
+}
