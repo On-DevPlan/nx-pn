@@ -148,6 +148,19 @@ If a plugin's `host.ts` is compiled without `external: ['cordis']`, esbuild bund
 cordis into the output, breaking the link to the host's cordis instance. Always pass
 `external: ['cordis']` in the esbuild options for host halves.
 
+### Git Bash `/tmp/` paths break npm `file:` specs
+
+`mktemp -d` in Git Bash yields `/tmp/...`, which Node/npm resolve as `C:\tmp\...`
+(ENOENT on package.json). Use `cygpath -w`-equivalent real Windows paths
+(e.g. `$LOCALAPPDATA/Temp/...`) for `file:` specs and `--data-dir`.
+
+### Init template ↔ scaffolded-fileList lockstep
+
+`apps/cli/src/init.ts` `scaffoldPlugin` iterates a hard-coded `fileList`. Adding
+a template file to `apps/cli/templates/plugin-basic/` without adding it to
+`fileList` (and to `init.test.ts`'s file-count assertion) silently drops it from
+every scaffolded plugin. Keep all three in sync.
+
 ## Verification
 
 ```bash

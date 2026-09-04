@@ -38,12 +38,45 @@ npx @flowot/nx-pn init my-plugin   # scaffold a new third-party plugin (8 files)
 
 ## How to read this skill
 
-Each reference file answers one question. SKILL.md orients.
+References are split by **who you are** — pick the role that matches your task.
 
-- **How do I USE the running app?** → `references/usage.md`
-- **How do I develop within the repo?** → `references/development.md`
-- **How do I extend (add packages, services, routes, pages, manifest fields)?** → `references/extension.md`
-- **What's the contract for plugin authors?** → `references/plugin-protocol.md`
-- **How do I scaffold a new third-party plugin (`init`)?** → `references/scaffolding.md`
-- **How do I build a fullscreen plugin with local sub-routes?** → `references/fullscreen.md`
-- **Walkthrough of the second plugin?** → `references/second-plugin.md`
+### You're extending the base system (core/host/client/web/cli)
+
+Working inside the api-audit monorepo — adding a service, route, page, manifest field,
+debugging dirty state, or understanding how the platform hangs together.
+
+- `references/core-developer/architecture.md` — monorepo walkthrough: how the 5 packages
+  fit together, the core invariant, where the cordis runtime lives, what the WS protocol
+  actually carries.
+- `references/core-developer/extending.md` — how to add a new package / service / route /
+  WS op / page / manifest field. The "where do I cut into this thing" entry point.
+- `references/core-developer/fullscreen-and-routing.md` — fullscreen plugin mount + nested
+  `<Routes>` internals, the splat match, common plugin-side pitfalls.
+- `references/core-developer/operations.md` — runtime tuning knobs (ring buffer, poll
+  interval), the audit-redaction policy, "nothing works after I played with the host"
+  recovery, why plugin runIds churn, end-to-end smoke procedure.
+
+### You're building a third-party plugin
+
+Just want a UI page (or fullscreen dashboard) that uses `ctx.auditClient` / `ctx.hostCall`?
+You don't need to read anything in `core-developer/` — start here.
+
+- `references/plugin-developer/plugin-contract.md` — the whole plugin author surface in one
+  place: manifest fields, host half shape, browser half shape, the three ctx services
+  (`pages` / `auditClient` / `hostCall`), attribution rules, replay.
+- `references/plugin-developer/scaffolding.md` — `npx @flowot/nx-pn init my-plugin` produces
+  8 files. Walk through each.
+- `references/plugin-developer/walkthrough-echo.md` — second plugin end-to-end (the
+  user-driven request tester). Read this if you want a complete real example with both
+  halves and audit attribution.
+- `references/plugin-developer/using-the-app.md` — running the app, the three core pages,
+  the trust model, troubleshooting.
+
+## Quick decision
+
+| You want to… | Read this first |
+|---|---|
+| Add a feature to the platform itself | `core-developer/architecture.md` → `extending.md` |
+| Debug a problem with the host / web / plugin-sync | `core-developer/operations.md` |
+| Build a brand-new plugin (the common case) | `plugin-developer/plugin-contract.md` → `scaffolding.md` |
+| See a complete plugin with audit + replay | `plugin-developer/walkthrough-echo.md` |
