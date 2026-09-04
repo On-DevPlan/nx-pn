@@ -14,9 +14,11 @@
  * A top bar (本页局部导航) links the views + a 返回壳 link back to /audit.
  *
  * All network calls go through host event handlers (`devctr-kv/*`) via
- * ctx.emit, which routes through WS RPC → host auditClient; the 概览
- * view also fires one audited GET directly via ctx.auditClient to prove
- * the plugin API works from inside a fullscreen view.
+ * ctx.hostCall, which rides the WS `tool.invoke` op → host cordis
+ * `serial` dispatch → the host half's registered handler (JWT + audit
+ * attribution live there); the 概览 view also fires one audited GET
+ * directly via ctx.auditClient to prove the plugin API works from inside
+ * a fullscreen view.
  */
 
 import { useState, useEffect, type ComponentType, type ReactNode } from 'react'
@@ -33,7 +35,11 @@ interface ApiResult {
 
 interface BrowserCtx {
   logger: { info(message: string): void; warn(message: string): void }
-  emit(event: string, payload?: unknown): Promise<ApiResult>
+  /** Browser→host tool-event bridge: call a host-half event handler
+   * (`<plugin>/<action>`, registered via ctx.on on the HOST context). */
+  hostCall: {
+    hostCall(event: string, payload?: unknown): Promise<unknown>
+  }
   auditClient: {
     get(
       url: string,
@@ -159,21 +165,16 @@ const browserHalf = function browserHalf(ctx: BrowserCtx, config?: { name?: stri
 
   // Helper: call a host event and unwrap the result.
   //
-  // NOTE on the wire: the browser cordis context dispatches events
-  // LOCALLY — `ctx.emit` has no listener for `devctr-kv/*` because the
-  // host half's handlers live in the host process and the WS bridge
-  // exposes only the audit `rpc.invoke` op (no tool-event op yet). An
-  // unmatched emit resolves to `undefined`, so we surface a structured
-  // ApiResult instead of crashing on `r.ok`. The panels render their
-  // error banners; the 概览 audited GET (ctx.auditClient) is unaffected
-  // because it rides the real rpc.invoke path.
+  // Wire: `ctx.hostCall.hostCall(event, payload)` rides the WS
+  // `tool.invoke` op; the host dispatches the event on its cordis
+  // context (`serial` mode) and replies with the host half's ApiResult
+  // — including its structured errors (e.g. the backend's 登录失败)
+  // and the no-handler degradation. cordis's service convention mirrors
+  // `ctx.auditClient.get(url)` and `ctx.pages.register(entry)`.
   async function call(action: string, payload?: Record<string, unknown>): Promise<ApiResult> {
     try {
-      const r = await ctx.emit(`devctr-kv/${action}`, payload ?? {})
-      if (r === undefined) {
-        ctx.logger.warn(`[${id}] ${action}: no local listener (browser emit is local-only — host tool-event bridge not on the wire yet)`)
-        return { ok: false, error: `${action}：浏览器→主机事件桥未接通（ctx.emit 仅本地派发）` }
-      }
+      const r = await ctx.hostCall.hostCall(`devctr-kv/${action}`, payload ?? {})
+      if (r === undefined || r === null) return { ok: false, error: `${action}：无返回` }
       return r as ApiResult
     } catch (err) {
       return { ok: false, error: (err as Error).message }
@@ -1199,6 +1200,6 @@ const browserHalf = function browserHalf(ctx: BrowserCtx, config?: { name?: stri
   })
 }
 
-;(browserHalf as typeof browserHalf & { inject?: string[] }).inject = ['pages', 'auditClient']
+;(browserHalf as typeof browserHalf & { inject?: string[] }).inject = ['pages', 'auditClient', 'hostCall']
 
 export default browserHalf
