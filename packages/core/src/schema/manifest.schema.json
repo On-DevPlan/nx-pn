@@ -78,7 +78,31 @@
           "maxLength": 200
         },
         "icon": { "type": "string", "maxLength": 64 },
-        "order": { "type": "integer", "minimum": 0, "maximum": 10000 }
+        "order": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "layout": {
+          "type": "string",
+          "enum": ["shell", "fullscreen"]
+        },
+        "routes": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/pageRouteDeclaration" },
+          "uniqueItems": true,
+          "maxItems": 64
+        }
+      }
+    },
+    "pageRouteDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "oneOf": [
+            { "const": "" },
+            { "pattern": "^/[a-zA-Z0-9_\\-/.:]*$", "maxLength": 256 }
+          ]
+        }
       }
     }
   }

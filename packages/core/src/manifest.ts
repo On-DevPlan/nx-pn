@@ -5,11 +5,23 @@ export const MAX_ZIP_BYTES = 4 * 1024 * 1024
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
+/** A plugin-owned sub-route (fullscreen pages). Relative to the page
+ * prefix: '/detail', '/keys', or '/' for the bare prefix. Declared for
+ * docs/validation only — the half supplies the Components. */
+export interface PageRouteDeclaration {
+  path: string
+}
+
 export interface PageDeclaration {
   path: string
   title: string
   icon?: string
   order?: number
+  /** 'shell' (default) | 'fullscreen' */
+  layout?: 'shell' | 'fullscreen'
+  /** Plugin-owned sub-routes (fullscreen pages); declared for
+   * docs/validation only — the half supplies the Components. */
+  routes?: PageRouteDeclaration[]
 }
 
 export interface HalfEntry {

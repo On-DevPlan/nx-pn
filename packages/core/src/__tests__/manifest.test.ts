@@ -70,4 +70,82 @@ describe('validateManifest', () => {
   it('exports MAX_ZIP_BYTES = 4 MiB', () => {
     expect(MAX_ZIP_BYTES).toBe(4 * 1024 * 1024)
   })
+
+  it('accepts a fullscreen page with plugin-owned routes', () => {
+    const m = validateManifest({
+      ...validManifest,
+      halves: {
+        browser: {
+          entry: 'browser.js',
+          pages: [
+            {
+              path: '/devctr',
+              title: 'KV 控制台',
+              layout: 'fullscreen',
+              routes: [{ path: '/' }, { path: '/keys' }],
+            },
+          ],
+        },
+      },
+    })
+    const page = m.halves.browser?.pages?.[0]
+    expect(page?.layout).toBe('fullscreen')
+    expect(page?.routes).toEqual([{ path: '/' }, { path: '/keys' }])
+  })
+
+  it('rejects an unknown layout value', () => {
+    expect(() =>
+      validateManifest({
+        ...validManifest,
+        halves: {
+          browser: {
+            entry: 'browser.js',
+            pages: [{ path: '/x', title: 'X', layout: 'sidebar' }],
+          },
+        },
+      }),
+    ).toThrow(/layout/)
+  })
+
+  it('rejects a route path without a leading / (unless empty root)', () => {
+    expect(() =>
+      validateManifest({
+        ...validManifest,
+        halves: {
+          browser: {
+            entry: 'browser.js',
+            pages: [{ path: '/x', title: 'X', layout: 'fullscreen', routes: [{ path: 'keys' }] }],
+          },
+        },
+      }),
+    ).toThrow(/path/)
+    // '' is the bare-prefix root route — valid.
+    expect(() =>
+      validateManifest({
+        ...validManifest,
+        halves: {
+          browser: {
+            entry: 'browser.js',
+            pages: [{ path: '/x', title: 'X', layout: 'fullscreen', routes: [{ path: '' }] }],
+          },
+        },
+      }),
+    ).not.toThrow()
+  })
+
+  it('rejects extra properties on a route entry', () => {
+    expect(() =>
+      validateManifest({
+        ...validManifest,
+        halves: {
+          browser: {
+            entry: 'browser.js',
+            pages: [
+              { path: '/x', title: 'X', layout: 'fullscreen', routes: [{ path: '/k', title: 'nope' }] },
+            ],
+          },
+        },
+      }),
+    ).toThrow()
+  })
 })
