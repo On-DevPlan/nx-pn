@@ -22,6 +22,7 @@ export type RpcOp =
   | 'plugin.changed'
   | 'rpc.invoke'
   | 'rpc.result'
+  | 'tool.invoke'
   | 'browser-half.load'
   | 'browser-half.retract'
   | 'error'

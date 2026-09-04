@@ -19,6 +19,7 @@ import type { RpcFrame } from './rpc/protocol.js'
 import { parseSnapshot, type SnapshotData } from './snapshot/snapshot.js'
 import { AuditClientService, bindAuditRpc } from './audit/audit-client-service.js'
 import { ClientAuditClientProxy } from './audit/client-proxy.js'
+import { HostCallService, bindHostCallRpc } from './host-call-service.js'
 import {
   loadBrowserHalf,
   retractBrowserHalf,
@@ -250,12 +251,22 @@ export async function connectRpc(opts: ConnectRpcOptions = {}): Promise<BrowserR
     onFrame: (frame) => routeFrame(runtime, frame),
   })
   // AuditClient service: the browser-half loader declares
-  // `inject: ['pages', 'auditClient']` so cordis activates a plugin
-  // fiber only when both services are present. AuditClientService reads
-  // the calling half's pluginRunId off its fiber config and rides the
-  // WS bridge as an `rpc.invoke` frame (§5.5).
+  // `inject: ['pages', 'auditClient', 'hostCall']` so cordis activates a
+  // plugin fiber only when all three services are present.
+  // AuditClientService reads the calling half's pluginRunId off its
+  // fiber config and rides the WS bridge as an `rpc.invoke` frame (§5.5);
+  // HostCallService forwards `ctx.hostCall(event, payload)` as a
+  // `tool.invoke` frame — the browser→host tool-event bridge (host halves
+  // register `ctx.on('<plugin>/<action>')` handlers).
   installAuditClient(ctx)
+  const hostCallReady = installHostCall(ctx)
   bindAuditRpc(rpc)
+  bindHostCallRpc(rpc)
+  // Await the hostCall fiber so the cordis service-walk resolves from
+  // child fibers before any browser half loads. Mirrors `await pages`
+  // above — without this, halves' `ctx.hostCall.hostCall(...)` may hit an
+  // unready service (single-shot race).
+  await hostCallReady
   const runtime = new BrowserRuntime({ ctx, transport, rpc })
 
   transport.connect()
@@ -329,6 +340,24 @@ function installAuditClient(ctx: Context): void {
   void new AuditClientService(ctx)
 }
 
+/**
+ * Register the hostCall cordis service so the loader's
+ * `inject: ['pages', 'auditClient', 'hostCall']` is satisfied and any
+ * browser half can reach the host-half event handlers via
+ * `ctx.hostCall.hostCall(event, payload)`. Mirrors installPages:
+ * `registry.plugin(HostCallService, {})` puts the service on its own
+ * fiber so a half fiber (different child) can resolve it through
+ * cordis's standard service-walk. The fiber's await blocks until the
+ * service is active (matches `ctx.pages` resolution).
+ */
+function installHostCall(ctx: Context): Promise<void> {
+  if ((ctx.reflect as { _getImpl?: (n: string, strict?: boolean) => unknown })._getImpl?.('hostCall', true)) {
+    return Promise.resolve()
+  }
+  const fiber = ctx.registry.plugin(HostCallService, {}) as unknown as Fiber
+  return (fiber.await as unknown as () => Promise<void>)()
+}
+
 function defaultWsUrl(): string {
   if (typeof location !== 'undefined') {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -352,6 +381,7 @@ export {
   type InstallBrowserHalfFromHostOptions,
 } from './runner/plugin-sync.js'
 export { ClientAuditClientProxy } from './audit/client-proxy.js'
+export { HostCallService, bindHostCallRpc } from './host-call-service.js'
 export { CordisContext } from './cordis/cordis-shim.js'
 export { fetchAudit, fetchReplay, fetchPluginList, stopPlugin, removePlugin, uninstallPlugin, uploadPlugin, installPluginByName, ApiError } from './host-api.js'
 export type { PluginSummary, PluginInstallResult, AuditSnapshot, ReplayRequest, ApiErrorPayload } from './host-api.js'

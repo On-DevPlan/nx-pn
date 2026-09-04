@@ -164,6 +164,18 @@ export class RpcClient {
   }
 
   /**
+   * Round-trip `tool.invoke` — call a host-half event handler
+   * (`<plugin>/<action>`, registered on the HOST cordis context via
+   * `ctx.on`) from the browser. Resolves with the handler's payload
+   * (the reply `data` — typically the host half's ApiResult). Same
+   * timeout / generation / disconnect semantics as `request`; an rpc
+   * level `ok:false` reply rejects with an RpcError.
+   */
+  invokeTool(event: string, payload?: unknown, pluginRunId?: string): Promise<unknown> {
+    return this.request('tool.invoke', { event, payload, pluginRunId })
+  }
+
+  /**
    * Route one inbound frame (parsed already by the transport). Fulfills
    * matching pending requests; hands push notifications to the handler.
    */

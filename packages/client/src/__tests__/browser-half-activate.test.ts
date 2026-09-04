@@ -18,6 +18,13 @@ async function makeCtx(): Promise<Context> {
     { get: () => undefined, post: () => undefined, put: () => undefined, patch: () => undefined, delete: () => undefined },
     undefined,
   )
+  // The loader's inject also declares `hostCall` (the browser→host
+  // tool-event bridge) — stub it; the test halves never call it.
+  ;(raw.reflect as { provide: (name: string, value: unknown, check?: unknown) => unknown }).provide(
+    'hostCall',
+    { hostCall: () => undefined },
+    undefined,
+  )
   return raw
 }
 

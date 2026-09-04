@@ -118,4 +118,44 @@ describe('RpcClient', () => {
       code: 'payload/too-large',
     })
   })
+
+  it('invokeTool sends a tool.invoke frame and resolves the reply data', async () => {
+    const { rpc, sent } = makeClient()
+    const p = rpc.invokeTool('test/echo', { a: 1 }, 'run-7')
+    expect(sent).toHaveLength(1)
+    const frame = JSON.parse(sent[0]!)
+    expect(frame.op).toBe('tool.invoke')
+    expect(frame.payload).toEqual({ event: 'test/echo', payload: { a: 1 }, pluginRunId: 'run-7' })
+    rpc.handleFrame({
+      v: 1,
+      generation: 42,
+      requestId: frame.requestId,
+      op: 'rpc.result',
+      // Host wraps the handler's ApiResult in { ok, data } so structured
+      // errors survive the pending table.
+      payload: { ok: true, data: { ok: true, data: { a: 1 } } },
+    })
+    await expect(p).resolves.toEqual({ ok: true, data: { a: 1 } })
+  })
+
+  it('invokeTool rejects with the rpc error code on an ok:false reply', async () => {
+    const { rpc, sent } = makeClient()
+    const p = rpc.invokeTool('test/boom', {})
+    const frame = JSON.parse(sent[0]!)
+    rpc.handleFrame({
+      v: 1,
+      generation: 42,
+      requestId: frame.requestId,
+      op: 'rpc.result',
+      payload: { ok: false, error: { code: 'rpc/tool-error', message: 'handler exploded' } },
+    })
+    await expect(p).rejects.toMatchObject({ code: 'rpc/tool-error', message: 'handler exploded' })
+  })
+
+  it('invokeTool rejects on disconnect like any pending request', async () => {
+    const { rpc } = makeClient()
+    const p = rpc.invokeTool('test/echo', {})
+    rpc.disconnectAll()
+    await expect(p).rejects.toMatchObject({ code: 'rpc/disconnected' })
+  })
 })

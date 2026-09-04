@@ -147,6 +147,70 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
       }, frame.generation)
     }
   }
+
+  /**
+   * Browser-side `tool.invoke` dispatcher — the browser→host tool-event
+   * bridge. A plugin browser half's `ctx.hostCall('<plugin>/<action>',
+   * payload)` rides the WS bridge as a `tool.invoke` frame; dispatch it
+   * on the HOST cordis context where the plugin's host half registered
+   * its handler via `ctx.on('<plugin>/<action>', ...)`.
+   *
+   * Dispatch mode: cordis `emit` is fire-and-forget (returns void, no
+   * await), so the result-returning `serial` dispatch is used — it
+   * awaits each handler and resolves with the first bailling (defined)
+   * result, i.e. the host half's ApiResult. No listener ⇒ `undefined`.
+   *
+   * Attribution: `pluginRunId` is resolved for logging only — the event
+   * namespace itself is plugin-owned, so an unknown runId still
+   * dispatches. The tool.invoke frame itself goes through NO audit
+   * middleware; any auditClient call the handler makes is audited with
+   * initiator attribution as usual.
+   *
+   * Reply convention (matches `rpc.invoke`): rpc-level `{ ok: true,
+   * data: <ApiResult> }` so structured handler errors (including the
+   * no-handler degradation) survive the client pending table verbatim;
+   * unexpected dispatch faults use rpc-level `{ ok: false, error: {
+   * code, message } }` which the client rejects as an RpcError.
+   */
+  async function handleToolInvoke(
+    bridge: import('./ws/rpc-bridge.js').RpcBridge,
+    frame: import('./ws/rpc-bridge.js').RpcFrame,
+  ): Promise<void> {
+    const payload = (frame.payload ?? {}) as { pluginRunId?: unknown; event?: unknown; payload?: unknown }
+    const event = typeof payload.event === 'string' ? payload.event : ''
+    const runId = typeof payload.pluginRunId === 'string' ? payload.pluginRunId : ''
+    const reply = (result: unknown): void => {
+      bridge.sendResult(frame.requestId, { ok: true, data: result }, frame.generation)
+    }
+    try {
+      if (!event) {
+        reply({ ok: false, error: 'tool.invoke: event must be a non-empty string' })
+        return
+      }
+      const entry = runId ? lifecycle.byRunId(runId) : undefined
+      ctx.logger.info(`[tool] ${event} via ${entry ? `${runId} (${entry.id})` : runId || 'unknown'}`)
+      // `ctx.serial` comes from cordis's reflect mixin accessor, which
+      // returns the EventsService method already bound to the service —
+      // call it as-is (rebinding to ctx would break its `_hooks` lookup).
+      const serial = (ctx as unknown as {
+        serial: (name: string, ...args: unknown[]) => Promise<unknown>
+      }).serial
+      const raw = await serial(event, payload.payload)
+      // Defensive: if the dispatch layer ever aggregates into an array,
+      // prefer the first defined entry.
+      const result = Array.isArray(raw) ? raw.find((r) => r !== undefined) : raw
+      if (result === undefined || result === null) {
+        reply({ ok: false, error: `no handler for ${event}` })
+        return
+      }
+      reply(result)
+    } catch (err) {
+      bridge.sendResult(frame.requestId, {
+        ok: false,
+        error: { code: 'rpc/tool-error', message: err instanceof Error ? err.message : String(err) },
+      }, frame.generation)
+    }
+  }
   ws.configureConnection = (bridge) => {
     bridge.sendNotification('snapshot.respond', snapshot(bridge))
     bridge.setFrameHandler((frame) => {
@@ -157,6 +221,9 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
       }
       if (frame.op === 'rpc.invoke') {
         void handleBrowserInvoke(bridge, frame)
+      }
+      if (frame.op === 'tool.invoke') {
+        void handleToolInvoke(bridge, frame)
       }
     })
   }
