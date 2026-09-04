@@ -300,7 +300,10 @@ describe('startHost integration', () => {
       //    original, and initiator `replay:<id>`.
       const audit2 = await (await fetch(`http://127.0.0.1:${host.port}/api/audit`)).json()
       expect(audit2.data.records).toHaveLength(2)
-      const replayed = audit2.data.records[1]
+      // GET /api/audit defaults to desc (newest first) — locate the replay
+      // record by its replayOf marker rather than by index.
+      const replayed = audit2.data.records.find((r: { replayOf?: number }) => r.replayOf === original.id)
+      expect(replayed).toBeDefined()
       expect(replayed.initiator).toBe(`replay:${original.id}`)
       expect(replayed.replayOf).toBe(original.id)
     } finally {
@@ -349,7 +352,8 @@ describe('startHost integration', () => {
 
       // 3. The new audit record reflects GET with no body.
       const audit2 = await (await fetch(`http://127.0.0.1:${host.port}/api/audit`)).json()
-      const replayed = audit2.data.records[1]
+      const replayed = audit2.data.records.find((r: { replayOf?: number }) => r.replayOf === original.id)
+      expect(replayed).toBeDefined()
       expect(replayed.method).toBe('GET')
       expect(replayed.url).toBe(`http://127.0.0.1:${upstreamPort}/replayed`)
       expect(replayed.reqBody.text).toBe('')

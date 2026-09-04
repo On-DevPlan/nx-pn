@@ -1,11 +1,15 @@
 /**
  * Audit middleware — outermost in the onion chain. Spec §3.2 / §4.2.
  *
- *   1. Apply credential redaction on the inbound headers BEFORE the fetch
- *      is sent (and BEFORE the record is constructed) — this guarantees
- *      secrets never appear in the stored record even on error paths.
- *   2. After `next()` resolves, build an AuditRecord and push it to the
- *      ring buffer.
+ *   After `next()` resolves, build an AuditRecord and push it to the ring
+ *   buffer (and, when `persist` is provided, durably first).
+ *
+ * NO credential redaction: this is a personal audit tool. Request headers
+ * (incl. Authorization / tokens) are recorded as-is AND sent as-is —
+ * redacting them would (a) hide the exact credential the developer is
+ * debugging from the audit trail, and (b) corrupt the live request (the
+ * backend would receive a redaction placeholder instead of the real
+ * credential). The data-dir audit store is local and user-owned.
  *
  * Optional durable persistence: when `persist` is provided, the record is
  * FIRST durably stored (the audit domain put under `String(id)`) and only
@@ -19,7 +23,6 @@
 
 import type { MiddlewareContext, Next, Middleware } from '@flowot/nx-pn-core'
 import { MAX_BODY_BYTES } from '@flowot/nx-pn-core'
-import { redactCredentials } from '@flowot/nx-pn-core'
 
 import type { AuditRecord } from './audit-record.js'
 import type { AuditRingBuffer } from './ring-buffer.js'
@@ -61,11 +64,14 @@ export function createAuditMiddleware(deps: AuditMiddlewareDeps): Middleware<Mid
   let chain: Promise<void> = Promise.resolve()
   return async function auditMiddleware(ctx: MiddlewareContext, next: Next): Promise<ResEnvelope> {
     const start = Date.now()
-    // (1) Redact BEFORE building the record (also redacts the live request).
-    const { headers: redactedHeaders } = redactCredentials(ctx.headers)
-
-    // Persist redacted headers on the context for any downstream middleware.
-    ctx.headers = redactedHeaders
+    // (No credential redaction — see file header.) We DO normalize header
+    // keys to lowercase so the audit record's reqHeaders and the wire
+    // request both use the same casing (HTTP headers are case-insensitive;
+    // callers may pass `Authorization`, downstream reads expect
+    // `authorization`). Values pass through verbatim.
+    ctx.headers = Object.fromEntries(
+      Object.entries(ctx.headers).map(([k, v]) => [k.toLowerCase(), v]),
+    )
 
     let response: ResEnvelope | undefined
     let caughtError: unknown
@@ -96,7 +102,7 @@ export function createAuditMiddleware(deps: AuditMiddlewareDeps): Middleware<Mid
       initiator: ctx.initiator,
       method: ctx.method,
       url: ctx.url,
-      reqHeaders: { ...redactedHeaders },
+      reqHeaders: { ...ctx.headers },
       reqBody,
       status: response?._auditStatus ?? 0,
       statusText: response?._auditStatusText ?? '',

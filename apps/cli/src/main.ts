@@ -15,8 +15,22 @@ import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { npmInstallPlugin, uninstallNpmPlugin, startHost, type StartedHost } from '@flowot/nx-pn-host'
 import { InitError, scaffoldPlugin } from './init.js'
+import { probeHost } from './probe.js'
+import { runAuditList, runAuditLastId } from './audit-cmds.js'
+import { runPluginList, runPluginShow, runPluginStop, runPluginRemove, runPluginUninstall } from './plugin-cmds.js'
+import { runBuild } from './build-cmd.js'
 
 export const DEFAULT_PORT = 4560
+
+export interface AuditQueryFlags {
+  sinceId?: number
+  limit?: number
+  method?: string
+  status?: number
+  url?: string
+  initiator?: string
+  order?: 'asc' | 'desc'
+}
 
 export interface CliOptions {
   port: number
@@ -24,7 +38,7 @@ export interface CliOptions {
   /** Whether to auto-open the browser (default true; --no-open disables). */
   open: boolean
   /** Set when the first positional names a one-shot subcommand. */
-  subcommand?: 'add' | 'uninstall' | 'init'
+  subcommand?: 'add' | 'uninstall' | 'init' | 'audit' | 'plugin' | 'build'
   /** For `add <spec>` — npm package name/spec or file: path. */
   spec?: string
   /** For `uninstall <id|runId>` — manifest id or pluginRunId. */
@@ -35,6 +49,18 @@ export interface CliOptions {
   initDir?: string
   /** For `init <name>` — overwrite existing non-empty directory. */
   force?: boolean
+  /** For `audit` — action: list | lastId. */
+  auditAction?: 'list' | 'lastId'
+  /** For `audit list` — query flags. */
+  auditQuery?: AuditQueryFlags
+  /** For `audit|plugin` — machine output format. */
+  format?: 'json' | 'jsonl' | 'csv' | 'table' | 'human'
+  /** For `plugin` — action: list | show | stop | remove | uninstall. */
+  pluginAction?: 'list' | 'show' | 'stop' | 'remove' | 'uninstall'
+  /** For `plugin show|stop|remove|uninstall` — target id or runId. */
+  pluginTarget?: string
+  /** For `build <dir>` — plugin directory. */
+  buildDir?: string
 }
 
 export class CliArgError extends Error {}
@@ -85,6 +111,53 @@ export function parseArgs(argv: string[]): CliOptions {
       opts.force = true
       continue
     }
+    if (arg === '--format' || arg.startsWith('--format=')) {
+      const f = takeValue().toLowerCase()
+      if (f !== 'json' && f !== 'jsonl' && f !== 'csv' && f !== 'table' && f !== 'human') {
+        throw new CliArgError(`--format must be one of json, jsonl, csv, table, human (got ${f})`)
+      }
+      opts.format = f
+      continue
+    }
+    if (arg === '--since-id' || arg.startsWith('--since-id=')) {
+      opts.auditQuery ??= {}
+      opts.auditQuery.sinceId = Number(takeValue())
+      continue
+    }
+    if (arg === '--limit' || arg.startsWith('--limit=')) {
+      opts.auditQuery ??= {}
+      opts.auditQuery.limit = Number(takeValue())
+      continue
+    }
+    if (arg === '--method' || arg.startsWith('--method=')) {
+      opts.auditQuery ??= {}
+      opts.auditQuery.method = takeValue().toUpperCase()
+      continue
+    }
+    if (arg === '--status' || arg.startsWith('--status=')) {
+      opts.auditQuery ??= {}
+      opts.auditQuery.status = Number(takeValue())
+      continue
+    }
+    if (arg === '--url' || arg.startsWith('--url=')) {
+      opts.auditQuery ??= {}
+      opts.auditQuery.url = takeValue()
+      continue
+    }
+    if (arg === '--initiator' || arg.startsWith('--initiator=')) {
+      opts.auditQuery ??= {}
+      opts.auditQuery.initiator = takeValue()
+      continue
+    }
+    if (arg === '--order' || arg.startsWith('--order=')) {
+      const o = takeValue()
+      if (o !== 'asc' && o !== 'desc') {
+        throw new CliArgError(`--order must be 'asc' or 'desc' (got ${o})`)
+      }
+      opts.auditQuery ??= {}
+      opts.auditQuery.order = o
+      continue
+    }
     if (arg.startsWith('-')) {
       throw new CliArgError(`unknown argument: ${arg} (try --help)`)
     }
@@ -93,35 +166,78 @@ export function parseArgs(argv: string[]): CliOptions {
 
   if (positionals.length > 0) {
     const cmd = positionals[0]!
+    const second = positionals[1]
     if (cmd === 'init') {
       opts.subcommand = 'init'
-      const nameArg = positionals[1]
-      if (nameArg === undefined || nameArg === '') {
+      if (second === undefined || second === '') {
         throw new CliArgError('init requires a plugin name (lowercase letters, digits, hyphens)')
       }
-      opts.pluginName = nameArg
+      opts.pluginName = second
       if (positionals.length > 2) {
         throw new CliArgError(`unexpected argument after name: ${positionals[2]}`)
       }
     } else if (cmd === 'add') {
       opts.subcommand = 'add'
-      const specArg = positionals[1]
-      if (specArg === undefined || specArg === '') {
+      if (second === undefined || second === '') {
         throw new CliArgError('add requires a plugin spec (npm package name or file: path)')
       }
-      opts.spec = specArg
+      opts.spec = second
       if (positionals.length > 2) {
         throw new CliArgError(`unexpected argument after spec: ${positionals[2]}`)
       }
     } else if (cmd === 'uninstall') {
       opts.subcommand = 'uninstall'
-      const idArg = positionals[1]
-      if (!idArg) {
+      if (!second) {
         throw new CliArgError('uninstall requires a plugin id or pluginRunId')
       }
-      opts.pluginId = idArg
+      opts.pluginId = second
       if (positionals.length > 2) {
         throw new CliArgError(`unexpected argument after id: ${positionals[2]}`)
+      }
+    } else if (cmd === 'audit') {
+      opts.subcommand = 'audit'
+      if (second === 'lastId') {
+        opts.auditAction = 'lastId'
+        if (positionals.length > 2) {
+          throw new CliArgError(`unexpected argument after 'audit lastId': ${positionals[2]}`)
+        }
+      } else if (second === undefined || second === 'list') {
+        opts.auditAction = 'list'
+        if (positionals.length > 2) {
+          throw new CliArgError(`unexpected argument after 'audit list': ${positionals[2]}`)
+        }
+      } else {
+        throw new CliArgError(`unknown audit action: ${second} (expected list or lastId)`)
+      }
+    } else if (cmd === 'plugin') {
+      opts.subcommand = 'plugin'
+      const actions = ['list', 'show', 'stop', 'remove', 'uninstall'] as const
+      if (!second || !(actions as readonly string[]).includes(second)) {
+        throw new CliArgError(`plugin requires an action: ${actions.join(' | ')} (got ${second ?? 'nothing'})`)
+      }
+      opts.pluginAction = second as (typeof actions)[number]
+      if (second === 'list') {
+        if (positionals.length > 2) {
+          throw new CliArgError(`unexpected argument after 'plugin list': ${positionals[2]}`)
+        }
+      } else {
+        const target = positionals[2]
+        if (!target) {
+          throw new CliArgError(`plugin ${second} requires a plugin id or runId`)
+        }
+        opts.pluginTarget = target
+        if (positionals.length > 3) {
+          throw new CliArgError(`unexpected argument after target: ${positionals[3]}`)
+        }
+      }
+    } else if (cmd === 'build') {
+      opts.subcommand = 'build'
+      if (!second) {
+        throw new CliArgError('build requires a plugin directory (e.g. ./plugins/echo)')
+      }
+      opts.buildDir = resolve(second)
+      if (positionals.length > 2) {
+        throw new CliArgError(`unexpected argument after build dir: ${positionals[2]}`)
       }
     } else {
       throw new CliArgError(`unknown argument: ${cmd} (try --help)`)
@@ -145,6 +261,18 @@ Commands:
                           is running; otherwise writes the npm ledger (takes
                           effect on the next host start)
   uninstall <id|runId>    Stop, unload and uninstall a plugin
+  audit list              Print audit records as JSON/JSONL/CSV
+                          [--since-id N] [--limit N] [--method M]
+                          [--status S] [--url SUBSTR] [--initiator I]
+                          [--order asc|desc] [--format json|jsonl|csv|table|human]
+  audit lastId            Print the latest audit record id (cheap polling)
+  plugin list             List installed plugins
+                          [--format json|jsonl|csv|table|human]
+  plugin show <id|runId>  Show one plugin's manifest (JSON)
+  plugin stop <runId>     Stop a running plugin (fiber.dispose)
+  plugin remove <runId>   Stop + evict from the lifecycle registry
+  plugin uninstall <id>   Remove + drop from the npm ledger
+  build <pluginDir>       Build a plugin's zip (runs its scripts/build-zip.mjs)
   (default)               Start the web server (dashboard) on --port
 
 Options:
@@ -186,6 +314,39 @@ export async function runCli(argv: string[]): Promise<void> {
     await runUninstall(opts)
     return
   }
+  if (opts.subcommand === 'audit') {
+    if (opts.auditAction === 'lastId') {
+      await runAuditLastId(opts)
+    } else {
+      await runAuditList(opts)
+    }
+    return
+  }
+  if (opts.subcommand === 'plugin') {
+    switch (opts.pluginAction) {
+      case 'list':
+        await runPluginList(opts)
+        break
+      case 'show':
+        await runPluginShow(opts)
+        break
+      case 'stop':
+        await runPluginStop(opts)
+        break
+      case 'remove':
+        await runPluginRemove(opts)
+        break
+      case 'uninstall':
+        await runPluginUninstall(opts)
+        break
+    }
+    return
+  }
+  if (opts.subcommand === 'build') {
+    const result = await runBuild(opts)
+    console.log(`✔ 已构建 ${result.dir} (via ${result.ran})`)
+    return
+  }
   await runServer(opts)
 }
 
@@ -214,21 +375,6 @@ async function runAdd(opts: CliOptions): Promise<void> {
     console.log(`  (ledger 路径 — 下次 host 启动时生效;当前无运行中的 host :${opts.port})`)
   } finally {
     await host.stop()
-  }
-}
-
-/**
- * Probe whether a long-running host is alive on `port`. Uses `GET
- * /api/plugins` as the liveness signal (there is no /api/health route;
- * this list route is stable and returns 200 {"ok":true,...} on a live
- * host). Returns false on connection error or non-200.
- */
-export async function probeHost(port: number): Promise<boolean> {
-  try {
-    const res = await fetch(`http://localhost:${port}/api/plugins`, { signal: AbortSignal.timeout(3000) })
-    return res.status === 200
-  } catch {
-    return false
   }
 }
 

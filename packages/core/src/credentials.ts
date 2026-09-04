@@ -2,9 +2,13 @@ import { createHash } from 'node:crypto'
 
 /**
  * Header names (lowercase) whose values are treated as credentials.
- * Spec §4.2: matched case-insensitively; replaced with a stable 16-char
- * sha256 prefix plus `{ present: true }` so the audit record proves the
- * header existed without disclosing its value.
+ *
+ * NOTE (product decision 2026-09-04): the nx-pn audit middleware does NOT
+ * call {@link redactCredentials} — audit records keep Authorization and other
+ * credential headers verbatim (it is a personal, local audit tool; the
+ * developer debugging auth needs the real value). This list + the redactor
+ * are retained as an explicit library capability for callers who DO want to
+ * scrub a header set, but nothing in the request path uses them by default.
  */
 export const SENSITIVE_HEADER_NAMES: readonly string[] = [
   'authorization',

@@ -469,3 +469,5 @@ export { PluginLoader, PluginLifecycle, HostAuditClient, AuditRingBuffer, WsHost
 export { npmInstallPlugin, restartNpmPlugins, uninstallNpmPlugin, InstallerError, PLUGINS_REGISTRY_DIR } from './plugins/installer.js'
 export type { NpmInstallResult, NpmInstallPluginOptions, LedgerEntry } from './plugins/installer.js'
 export type { AuditRecord } from './client/audit-record.js'
+export { applyAuditQuery, parseAuditQuery } from './server/audit-route.js'
+export type { AuditQuery } from './server/audit-route.js'

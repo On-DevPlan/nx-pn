@@ -15,7 +15,7 @@ function fakeEnvelope(body: string, status = 200): ResEnvelope {
 }
 
 describe('auditMiddleware', () => {
-  it('redacts credentials on the request headers and produces a record', async () => {
+  it('records request headers as-is (no credential redaction — local audit tool)', async () => {
     const buf = new AuditRingBuffer<import('../client/audit-record.js').AuditRecord>()
     const mw = createAuditMiddleware({ buffer: buf })
     const ctx: MiddlewareContext = {
@@ -29,10 +29,11 @@ describe('auditMiddleware', () => {
     const records = buf.snapshot()
     expect(records).toHaveLength(1)
     expect(records[0]!.initiator).toBe('plugin:foo')
-    expect(records[0]!.reqHeaders['authorization']).toMatch(/present.*true/)
+    // The raw Authorization header value is preserved verbatim in the record.
+    expect(records[0]!.reqHeaders['authorization']).toBe('Bearer abc')
     expect(records[0]!.reqHeaders['x-trace']).toBe('1')
-    // The live ctx headers were redacted too.
-    expect((ctx.headers['authorization'] as string)).toMatch(/present.*true/)
+    // The live ctx headers are sent through untouched too.
+    expect(ctx.headers['authorization']).toBe('Bearer abc')
   })
 
   it('records network errors with status 0', async () => {

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { DEFAULT_PORT, parseArgs, CliArgError, probeHost, forwardInstall } from './main.js'
+import { DEFAULT_PORT, parseArgs, CliArgError, forwardInstall } from './main.js'
+import { probeHost } from './probe.js'
 
 describe('parseArgs (spec §2.2)', () => {
   it('defaults: port 4560, ~/.api-audit, open', () => {
@@ -175,5 +176,81 @@ describe('forwardInstall (add → live-host forwarding)', () => {
     } finally {
       await new Promise<void>((r) => server.close(() => r()))
     }
+  })
+})
+
+describe('audit list|lastId', () => {
+  it('audit list defaults to list action', () => {
+    const opts = parseArgs(['audit', 'list'])
+    expect(opts.subcommand).toBe('audit')
+    expect(opts.auditAction).toBe('list')
+  })
+
+  it('bare `audit` means list', () => {
+    const opts = parseArgs(['audit'])
+    expect(opts.subcommand).toBe('audit')
+    expect(opts.auditAction).toBe('list')
+  })
+
+  it('audit lastId sets action', () => {
+    expect(parseArgs(['audit', 'lastId']).auditAction).toBe('lastId')
+  })
+
+  it('parses query flags', () => {
+    const opts = parseArgs(['audit', 'list', '--method', 'GET', '--status', '200', '--url', 'api', '--initiator', 'echo', '--limit', '50', '--order', 'asc', '--since-id', '3', '--format', 'jsonl'])
+    expect(opts.auditQuery).toEqual({
+      sinceId: 3,
+      method: 'GET',
+      status: 200,
+      url: 'api',
+      initiator: 'echo',
+      limit: 50,
+      order: 'asc',
+    })
+    expect(opts.format).toBe('jsonl')
+  })
+
+  it('rejects bad order / format', () => {
+    expect(() => parseArgs(['audit', 'list', '--order', 'sideways'])).toThrow(/order/)
+    expect(() => parseArgs(['audit', 'list', '--format', 'xml'])).toThrow(/format/)
+  })
+
+  it('rejects unknown audit actions', () => {
+    expect(() => parseArgs(['audit', 'purge'])).toThrow(/audit action/)
+  })
+})
+
+describe('plugin list|show|stop|remove|uninstall', () => {
+  it('plugin list', () => {
+    const opts = parseArgs(['plugin', 'list'])
+    expect(opts.subcommand).toBe('plugin')
+    expect(opts.pluginAction).toBe('list')
+  })
+
+  it('plugin show|stop|remove|uninstall take a target', () => {
+    expect(parseArgs(['plugin', 'show', 'echo']).pluginTarget).toBe('echo')
+    expect(parseArgs(['plugin', 'stop', 'run-7']).pluginTarget).toBe('run-7')
+    expect(parseArgs(['plugin', 'remove', 'run-7']).pluginAction).toBe('remove')
+    expect(parseArgs(['plugin', 'uninstall', 'echo']).pluginTarget).toBe('echo')
+  })
+
+  it('plugin action requires a target for non-list', () => {
+    expect(() => parseArgs(['plugin', 'stop'])).toThrow(/requires a plugin id/)
+  })
+
+  it('plugin with no action throws', () => {
+    expect(() => parseArgs(['plugin'])).toThrow(/plugin requires an action/)
+  })
+})
+
+describe('build <dir>', () => {
+  it('sets buildDir to an absolute path', () => {
+    const opts = parseArgs(['build', 'plugins/echo'])
+    expect(opts.subcommand).toBe('build')
+    expect(opts.buildDir).toBe(resolve('plugins/echo'))
+  })
+
+  it('requires a directory', () => {
+    expect(() => parseArgs(['build'])).toThrow(/requires a plugin directory/)
   })
 })

@@ -50,7 +50,7 @@ describe('HostAuditClient', () => {
     expect(records[0]!.reqBody.text).toBe('{"hello":"world"}')
   })
 
-  it('redacts sensitive headers before fetch', async () => {
+  it('sends request headers as-is (no credential redaction)', async () => {
     let captured: RequestInit | undefined
     const fetchImpl = (async (_url: string, init?: RequestInit): Promise<Response> => {
       captured = init
@@ -60,9 +60,10 @@ describe('HostAuditClient', () => {
     const client = new HostAuditClient({ buffer: buf, fetchImpl })
     await client.get('https://x', { headers: { Authorization: 'Bearer secret' } })
     const headers = captured?.headers as Record<string, string>
-    expect(headers['authorization']).toMatch(/present.*true/)
+    // The raw Authorization header reaches the wire untouched.
+    expect(headers['authorization']).toBe('Bearer secret')
     const records = buf.snapshot()
-    expect(records[0]!.reqHeaders['authorization']).toMatch(/present.*true/)
+    expect(records[0]!.reqHeaders['authorization']).toBe('Bearer secret')
   })
 
   it('drops body when method is GET so fetch is not asked to send one', async () => {
