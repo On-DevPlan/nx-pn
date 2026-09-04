@@ -3,16 +3,28 @@
   "version": "0.3.0",
   "description": "Schema-validated, change-emitting KV domains over nx-pn storage backends: defineDomain, single write chain, domain/changed events (dsh storage-family port)",
   "license": "MIT",
-  "publishConfig": { "access": "public" },
-  "repository": { "type": "git", "url": "git+https://github.com/On-DevPlan/nx-pn.git", "directory": "packages/storage/storage-domain" },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/On-DevPlan/nx-pn.git",
+    "directory": "packages/storage/storage-domain"
+  },
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
   "exports": {
-    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
     "./package.json": "./package.json"
   },
-  "files": ["lib", "!lib/*.tsbuildinfo"],
+  "files": [
+    "lib",
+    "!lib/*.tsbuildinfo"
+  ],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",

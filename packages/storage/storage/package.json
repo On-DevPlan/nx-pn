@@ -3,16 +3,28 @@
   "version": "0.3.0",
   "description": "Storage hub for the nx-pn plugin platform: named backend registry, KV unit contract, stable error codes (dsh storage-family port)",
   "license": "MIT",
-  "publishConfig": { "access": "public" },
-  "repository": { "type": "git", "url": "git+https://github.com/On-DevPlan/nx-pn.git", "directory": "packages/storage/storage" },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/On-DevPlan/nx-pn.git",
+    "directory": "packages/storage/storage"
+  },
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
   "exports": {
-    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
     "./package.json": "./package.json"
   },
-  "files": ["lib", "!lib/*.tsbuildinfo"],
+  "files": [
+    "lib",
+    "!lib/*.tsbuildinfo"
+  ],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",

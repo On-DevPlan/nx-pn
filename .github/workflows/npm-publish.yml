@@ -55,7 +55,12 @@ jobs:
       - name: Verify uniform family version
         run: |
           v="${{ steps.version.outputs.version }}"
-          for d in packages/core packages/client apps/web packages/host apps/nx-pn; do
+          # Family: storage family (hub + 3 backends) + product family.
+          # Storage packages have no internal cross-deps with the product
+          # family; the storage hub is required by every other storage pkg
+          # and the product family depends on storage-{domain,js} — the
+          # version guard catches accidental drift anywhere in the tree.
+          for d in packages/storage/storage packages/storage/storage-json packages/storage/storage-sqlite packages/storage/storage-domain packages/core packages/client apps/web packages/host apps/nx-pn; do
             nv=$(node -p "require('./$d/package.json').version")
             if [ "$nv" != "$v" ]; then
               echo "::error::version mismatch in $d ($nv != $v) — the family must share one version"
@@ -87,8 +92,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .release
-          # Topo order: core → client → web → host → cli → unscoped alias
-          for d in packages/core packages/client apps/web packages/host apps/cli apps/nx-pn; do
+          # Topo order: storage hub → 3 backends (json/sqlite/domain depend on it) →
+          # core → client → web → host → cli → unscoped alias.
+          # Each package's tarball is written to .release/, npm view
+          # pre-check is idempotent (already-published versions are skipped).
+          for d in \
+            packages/storage/storage \
+            packages/storage/storage-json \
+            packages/storage/storage-sqlite \
+            packages/storage/storage-domain \
+            packages/core \
+            packages/client \
+            apps/web \
+            packages/host \
+            apps/cli \
+            apps/nx-pn; do
             name=$(node -p "require('./$d/package.json').name")
             version=$(node -p "require('./$d/package.json').version")
             if npm view "$name@$version" version >/dev/null 2>&1; then
