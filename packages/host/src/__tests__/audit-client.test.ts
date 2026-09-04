@@ -64,4 +64,29 @@ describe('HostAuditClient', () => {
     const records = buf.snapshot()
     expect(records[0]!.reqHeaders['authorization']).toMatch(/present.*true/)
   })
+
+  it('drops body when method is GET so fetch is not asked to send one', async () => {
+    // Regression: undici throws "Request with GET method cannot have
+    // body" when the caller stuffs a body into a GET context (e.g. replay
+    // with method override). The terminal handler must strip the body
+    // before dispatching fetch.
+    let captured: RequestInit | undefined
+    const fetchImpl = (async (_url: string, init?: RequestInit): Promise<Response> => {
+      captured = init
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as typeof fetch
+    const buf = new AuditRingBuffer<AuditRecord>()
+    const client = new HostAuditClient({ buffer: buf, fetchImpl })
+    // Bypass the typed helpers — simulate a replay that forced GET but
+    // carried a leftover body in the context.
+    await client.request({
+      method: 'GET',
+      url: 'https://x',
+      initiator: 'replay:1',
+      headers: {},
+      body: 'should-be-dropped',
+    })
+    expect(captured?.method).toBe('GET')
+    expect(captured?.body).toBeUndefined()
+  })
 })

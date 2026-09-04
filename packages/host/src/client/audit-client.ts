@@ -152,10 +152,16 @@ export class HostAuditClient {
     // We also bridge HeadersInit types between the global lib and undici's
     // bundled types (both extend the standard, but TS sees them as
     // structurally distinct under `exactOptionalPropertyTypes`).
+    // GET must not carry a body — undici throws "Request with GET method
+    // cannot have body" otherwise. Strip it defensively here so any
+    // caller (replay with method override, plugin with bad input) cannot
+    // crash the request.
+    const method = ctx.method
+    const body = method === 'GET' ? undefined : ctx.body
     const init = {
-      method: ctx.method,
+      method,
       headers: ctx.headers,
-      ...(ctx.body !== undefined ? { body: ctx.body } : {}),
+      ...(body !== undefined ? { body } : {}),
       ...(this.dispatcher ? { dispatcher: this.dispatcher } : {}),
     } as unknown as Parameters<typeof fetch>[1]
 

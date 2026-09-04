@@ -66,7 +66,14 @@ export async function handleReplayRoute(deps: ReplayRouteDeps, req: IncomingMess
     initiator: `replay:${recordId}`,
     headers,
   }
-  if (overrides.body !== undefined) ctx.body = String(overrides.body)
+  // GET cannot carry a body (HTTP spec / fetch will throw). If the user
+  // overrode the method to GET, drop any body — both from the outbound
+  // request and from the audit record. Replays without a method override
+  // inherit the original method, which already implies whether a body
+  // makes sense.
+  if (method === 'GET') {
+    ctx.body = ''
+  } else if (overrides.body !== undefined) ctx.body = String(overrides.body)
   else if (record.reqBody.text) ctx.body = record.reqBody.text
 
   try {
