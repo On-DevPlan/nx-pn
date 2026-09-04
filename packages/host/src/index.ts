@@ -64,6 +64,14 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
   const ws = new WsHostServer({ path: '/ws' })
   const browserHalfPusher = new BrowserHalfPusher({ ws })
 
+  // Wire the pusher into the lifecycle so `lifecycle.remove(runId)`
+  // broadcasts `browser-half.retract { id, pluginRunId }` to every
+  // connected browser. This makes re-upload dedup (loader.ts) and npm
+  // upgrade dedup (installer.ts) drop the old browser half + pages
+  // atomically with the host half's disposal, preventing stale
+  // pluginRunIds from shadowing the new run on the client side.
+  lifecycle.setBrowserHalfPusher(browserHalfPusher)
+
   const broadcast = (op: import('./ws/rpc-bridge.js').RpcOp, payload: unknown): void => {
     ws.forEach((_s, bridge) => bridge.sendNotification(op, payload))
   }

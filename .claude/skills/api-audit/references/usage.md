@@ -31,6 +31,7 @@ Then open `http://localhost:4560` in your browser.
 
 ```bash
 npx @flowot/nx-pn                           # start web server
+npx @flowot/nx-pn init <name>               # scaffold a new plugin (8 files, v0.2.0)
 npx @flowot/nx-pn add <package-spec>        # install plugin by npm name
 npx @flowot/nx-pn uninstall <id|runId>     # remove a plugin
 ```
@@ -40,6 +41,12 @@ npx @flowot/nx-pn uninstall <id|runId>     # remove a plugin
 - `name@version` — pinned version
 - `file:./folder` — local path
 - `name` — latest from registry
+
+Re-installing / re-uploading a plugin with an existing `manifest.id` (same name
+on npm, or rebuilding the same id) automatically replaces the old run — the
+previous fiber is disposed, the browser-half is retracted on connected web
+shells, and the new run is the only one in the list. The response carries
+`replaced: [<old runId>]`.
 
 ## Web UI walkthrough
 
@@ -65,8 +72,10 @@ Two install paths:
 2. **By zip** — upload a dual-half zip built with `scripts/build-zip.mjs`
 
 The table shows installed plugins with **id / version / status / pluginRunId** and
-stop/remove controls. Re-uploading the same id creates a new `pluginRunId` (version
-update semantics).
+stop/remove controls. Re-uploading the same id replaces the previous run (the old
+fiber is disposed, browser pages are retracted, the registry keeps exactly one
+entry per `manifest.id`); the new install gets a fresh `pluginRunId` and the REST
+response carries `replaced: [<old runId>]`.
 
 ### Plugin pages in the sidebar
 

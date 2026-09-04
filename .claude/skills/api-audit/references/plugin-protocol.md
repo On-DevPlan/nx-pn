@@ -103,6 +103,14 @@ lifecycle registry → `initiator = manifest.id`. Verified in
 - Stop: `await fiber.dispose()`
 - Restart: re-install via zip upload or npm ledger replay
 
+**Re-upload dedup**: uploading or installing a plugin with an existing
+`manifest.id` automatically replaces the old run (the host fiber is disposed
+and the browser-half is retracted on every connected web shell). The new run
+gets a fresh `pluginRunId`; the old one is gone. The response carries
+`replaced: [<old runId>, ...]` (empty for a fresh upload) so callers can see
+the eviction. At any instant at most one active run per `manifest.id` exists
+in the lifecycle + the browser's PageRegistry.
+
 ## Browser half contract (ESM, shared React)
 
 ```tsx

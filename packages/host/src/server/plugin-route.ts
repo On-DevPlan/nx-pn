@@ -88,13 +88,22 @@ export async function handlePluginRoute(deps: PluginRouteDeps, req: IncomingMess
     try {
       const r = await deps.installNpm(spec)
       // Push the freshly-installed browser half to every connected web shell
-      // so the plugin's pages appear without a reload (spec §5.2.1).
+      // so the plugin's pages appear without a reload (spec §5.2.1). The
+      // push MUST run AFTER installNpm's internal dedup so the OLD run's
+      // browser half (if any) is already retracted by lifecycle.remove → no
+      // double-register on the browser side.
       if (r.browserSource) {
         deps.browserHalfPusher.load({ id: r.id, pluginRunId: r.pluginRunId, code: r.browserSource })
       }
       sendJson(res, 201, {
         ok: true,
-        data: { id: r.id, pluginRunId: r.pluginRunId, name: r.name, version: r.version },
+        data: {
+          id: r.id,
+          pluginRunId: r.pluginRunId,
+          name: r.name,
+          version: r.version,
+          replaced: r.replaced,
+        },
       })
     } catch (err) {
       if (err instanceof InstallerError) {
@@ -130,15 +139,22 @@ export async function handlePluginRoute(deps: PluginRouteDeps, req: IncomingMess
 
   if (action === 'stop') {
     await deps.lifecycle.stop(pluginRunId)
-    deps.browserHalfPusher.retract(pluginRunId)
+    // stop keeps the registry entry by design — lifecycle doesn't auto-
+    // broadcast retract on `stop()` (only on `remove()`). Push the
+    // retract here so a "stop then leave in the registry" semantics
+    // also drops the browser half from connected shells. Re-attachable
+    // via a future POST /start.
+    deps.browserHalfPusher.retract(pluginRunId, entry.id)
     sendJson(res, 200, { ok: true })
     return
   }
   // remove + uninstall both stop & evict; uninstall additionally drops the
   // npm ledger entry so a host restart won't reinstall it. The ledger drop
   // must run BEFORE lifecycle.remove — uninstallNpm resolves the id by
-  // pluginRunId, which no longer resolves after eviction.
-  deps.browserHalfPusher.retract(pluginRunId)
+  // pluginRunId, which no longer resolves after eviction. lifecycle.remove
+  // broadcasts `browser-half.retract { id, pluginRunId }` itself (wired at
+  // startHost()), so we no longer push the retract here — single source of
+  // truth.
   if (action === 'uninstall') {
     await deps.uninstallNpm(pluginRunId)
   }

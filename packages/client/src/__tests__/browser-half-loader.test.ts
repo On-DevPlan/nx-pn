@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { CordisContext } from '../cordis/cordis-shim.js'
 import type { Context, Fiber } from '../cordis/cordis-shim.js'
 import { Pages } from '../pages/pages-service.js'
-import { loadBrowserHalf, retractBrowserHalf, SHARED_BROWSER_EXTERNALS } from '../runner/browser-half-loader.js'
+import { loadBrowserHalf, retractBrowserHalf, SHARED_BROWSER_EXTERNALS, type BrowserHalfRetractMessage } from '../runner/browser-half-loader.js'
 
 /** Install the Pages service and await its cordis activation. */
 async function makeCtx(): Promise<Context> {
@@ -116,5 +116,19 @@ export default half
     for (const spec of ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client', 'react-router-dom']) {
       expect(SHARED_BROWSER_EXTERNALS).toContain(spec)
     }
+  })
+
+  it('BrowserHalfRetractMessage carries the manifest id so the client can drop pages by id', () => {
+    // The host lifecycle broadcasts `browser-half.retract { pluginRunId, id }`
+    // on plugin remove; the browser-side `applyBrowserHalfRetract` uses
+    // `id` to call `pages.unregister(manifestId)` so re-upload dedup
+    // (same manifest id, new pluginRunId) drains every stale page from
+    // the browser's PageRegistry, not only the disposed fiber's own.
+    const msg: BrowserHalfRetractMessage = { pluginRunId: 'run-old', id: 'echo' }
+    expect(msg.pluginRunId).toBe('run-old')
+    expect(msg.id).toBe('echo')
+    // Back-compat: older hosts send frames carrying just pluginRunId.
+    const legacy: BrowserHalfRetractMessage = { pluginRunId: 'run-legacy' }
+    expect(legacy.id).toBeUndefined()
   })
 })

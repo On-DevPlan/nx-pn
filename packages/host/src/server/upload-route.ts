@@ -49,6 +49,11 @@ export function handleUploadPlugin(deps: { loader: PluginLoader; browserHalfPush
           id: result.id,
           pluginRunId: result.pluginRunId,
           manifest: result.manifest,
+          // Dedup evidence — empty for fresh uploads, populated when an
+          // existing run of the same manifest id was evicted. Mirrors
+          // installer.ts's `replaced` so both install channels return
+          // the same shape.
+          replaced: result.replaced,
         },
       })
     } catch (err) {

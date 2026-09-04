@@ -219,10 +219,13 @@ describe('install-by-name e2e — npm package plugin (npx-plugin path)', () => {
       body: JSON.stringify({ spec }),
     })
     expect(installRes.status).toBe(201)
-    const installJson = (await installRes.json()) as { ok: boolean; data: { id: string; pluginRunId: string } }
+    const installJson = (await installRes.json()) as { ok: boolean; data: { id: string; pluginRunId: string; replaced: string[] } }
     expect(installJson.ok).toBe(true)
     expect(installJson.data.id).toBe('my-audit-plugin')
+    // First REST install → no prior run, replaced is empty.
+    expect(installJson.data.replaced).toEqual([])
     expect(host2.lifecycle.list()).toHaveLength(1)
+    const firstRestRunId = installJson.data.pluginRunId
 
     // empty spec → 400
     const badRes = await fetch(`http://127.0.0.1:${host2.port}/api/plugins/install`, {
@@ -231,5 +234,24 @@ describe('install-by-name e2e — npm package plugin (npx-plugin path)', () => {
       body: JSON.stringify({ spec: '   ' }),
     })
     expect(badRes.status).toBe(400)
+
+    // ── 9. re-install via REST → dedup replaces the previous run ─────────
+    // Same spec, same manifest id → the prior pluginRunId is evicted and
+    // reported in `replaced`. Registry must hold EXACTLY one entry for
+    // this manifest id.
+    const reinstallRes = await fetch(`http://127.0.0.1:${host2.port}/api/plugins/install`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ spec }),
+    })
+    expect(reinstallRes.status).toBe(201)
+    const reinstallJson = (await reinstallRes.json()) as { ok: boolean; data: { id: string; pluginRunId: string; replaced: string[] } }
+    expect(reinstallJson.ok).toBe(true)
+    expect(reinstallJson.data.id).toBe('my-audit-plugin')
+    expect(reinstallJson.data.replaced).toEqual([firstRestRunId])
+    expect(reinstallJson.data.pluginRunId).not.toBe(firstRestRunId)
+    expect(host2.lifecycle.list()).toHaveLength(1)
+    expect(host2.lifecycle.list()[0]!.pluginRunId).toBe(reinstallJson.data.pluginRunId)
+    expect(host2.lifecycle.byRunId(firstRestRunId)).toBeUndefined()
   }, 30000)
 })

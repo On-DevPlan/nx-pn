@@ -168,4 +168,46 @@ describe('PluginLoader', () => {
     ])
     await expect(loader.load({ zipBytes: zip })).rejects.toThrow()
   })
+
+  it('re-upload dedup: same manifest.id replaces the old run', async () => {
+    // Side effect the test half sets a global flag when its fiber is
+    // disposed — that proves the OLD fiber's effects (including any
+    // ctx.effect disposers) actually ran on the lifecycle.remove() call
+    // the loader does before registering the new run.
+    const g = globalThis as unknown as { __dedupHalfDisped?: number }
+    g.__dedupHalfDisped = 0
+    const half = `export default function (ctx) {
+      ctx.effect(() => () => { globalThis.__dedupHalfDisped = (globalThis.__dedupHalfDisped || 0) + 1 })
+    }`
+
+    const zip = makeZip([
+      ['manifest.json', manifestJson('dedup')],
+      ['host.js', half],
+    ])
+
+    // First upload.
+    const first = await loader.load({ zipBytes: zip })
+    expect(first.id).toBe('dedup')
+    expect(first.replaced).toEqual([])
+    expect(lifecycle.list()).toHaveLength(1)
+    const firstEntry = lifecycle.byRunId(first.pluginRunId)
+    expect(firstEntry).toBeDefined()
+    const firstFiber = firstEntry!.fiber
+
+    // Second upload with the same id → the old run is evicted.
+    const second = await loader.load({ zipBytes: zip })
+    expect(second.id).toBe('dedup')
+    expect(second.pluginRunId).not.toBe(first.pluginRunId)
+    expect(second.replaced).toEqual([first.pluginRunId])
+    // Exactly ONE entry for this id is alive — the new run.
+    expect(lifecycle.list()).toHaveLength(1)
+    expect(lifecycle.byRunId(first.pluginRunId)).toBeUndefined()
+    expect(lifecycle.byRunId(second.pluginRunId)).toBeDefined()
+    // The old fiber must be disposed (cordis DISPOSED state = 4).
+    expect(firstFiber.state).toBe(4)
+    // The effect disposer from the OLD run must have fired exactly once.
+    expect(g.__dedupHalfDisped).toBe(1)
+    // The new run is active.
+    expect(lifecycle.byRunId(second.pluginRunId)!.fiber.state).toBe(2)
+  })
 })

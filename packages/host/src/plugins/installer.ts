@@ -59,6 +59,13 @@ export interface NpmInstallResult {
   registryDir: string
   /** Compiled browser-half ESM source (if the package declares a browser half). */
   browserSource?: string
+  /**
+   * pluginRunIds that were evicted because their manifest id collided
+   * with this install. Empty for a fresh install; populated by the
+   * re-upload dedup in step (5). The new pluginRunId is the sole entry
+   * remaining in the lifecycle after installNpmPlugin resolves.
+   */
+  replaced: string[]
 }
 
 export interface LedgerEntry {
@@ -139,11 +146,17 @@ export async function npmInstallPlugin(opts: NpmInstallPluginOptions): Promise<N
   }
 
   // (5) Upsert: evict any running instance of the same manifest id so
-  // re-install / upgrade leaves exactly one live fiber.
-  for (const existing of opts.lifecycle.list()) {
-    if (existing.id === id) {
-      await opts.lifecycle.remove(existing.pluginRunId)
-    }
+  // re-install / upgrade leaves exactly one live fiber. We collect the
+  // evicted pluginRunIds so the caller can surface them in the REST
+  // response (the loader does the same — same surface, same semantics).
+  // lifecycle.remove disposes the fiber AND broadcasts
+  // `browser-half.retract { id, pluginRunId }` to every connected WS, so
+  // connected browsers drop the old browser half + pages before the new
+  // host half loads.
+  const replaced: string[] = []
+  for (const existing of opts.lifecycle.listById(id)) {
+    replaced.push(existing.pluginRunId)
+    await opts.lifecycle.remove(existing.pluginRunId)
   }
 
   // (6) Load into cordis (register BEFORE awaiting, like loader.ts) so the
@@ -181,6 +194,7 @@ export async function npmInstallPlugin(opts: NpmInstallPluginOptions): Promise<N
     entryPath,
     manifest,
     registryDir,
+    replaced,
     ...(browserSource !== undefined ? { browserSource } : {}),
   }
 }

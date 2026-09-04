@@ -157,9 +157,27 @@ export class BrowserRuntime {
   /** Retract (stop) a browser half. */
   async applyBrowserHalfRetract(msg: BrowserHalfRetractMessage): Promise<void> {
     const record = this.halves.get(msg.pluginRunId)
-    if (!record) return
-    this.halves.delete(msg.pluginRunId)
-    await retractBrowserHalf({ ctx: this.ctx }, record)
+    if (record) {
+      this.halves.delete(msg.pluginRunId)
+      await retractBrowserHalf({ ctx: this.ctx }, record)
+    }
+    // Belt-and-suspenders: explicitly unregister every page registered
+    // under the retracted plugin's manifest id. The cordis effect cleanup
+    // in retractBrowserHalf() above already removes the disposed fiber's
+    // own entries, but a re-upload dedup (host swaps the pluginRunId
+    // while keeping the same manifest id) can leave entries from an
+    // earlier, still-alive browser-half fiber that shadow the new run.
+    // Matching by id and calling pages.unregister() guarantees the
+    // browser's PageRegistry is fully drained for this plugin id —
+    // idempotent: a no-op when there are no matching entries.
+    if (msg.id) {
+      const pages = (this.ctx as unknown as { pages?: { unregister?: (id: string) => void } }).pages
+      try {
+        pages?.unregister?.(msg.id)
+      } catch {
+        // isolate — a bad retract must not break the snapshot pipeline
+      }
+    }
   }
 
   /**

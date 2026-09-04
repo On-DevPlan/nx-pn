@@ -26,9 +26,9 @@ export class BrowserHalfPusher {
   }
 
   /** Notify the browser a plugin has been retracted. */
-  retract(pluginRunId: string): void {
+  retract(pluginRunId: string, id?: string): void {
     this.deps.ws.forEach((_ws, bridge) => {
-      bridge.sendNotification('browser-half.retract', { pluginRunId })
+      bridge.sendNotification('browser-half.retract', { pluginRunId, ...(id !== undefined ? { id } : {}) })
     })
   }
 }

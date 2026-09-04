@@ -51,6 +51,14 @@ export interface LoadResult {
   zipPath: string
   /** Compiled browser-half ESM source (if the manifest declares one). */
   browserSource?: string
+  /**
+   * pluginRunIds evicted by the dedup before this load landed. Empty for
+   * a fresh upload; populated when an existing run of the same manifest
+   * id was present (re-upload replaces). Mirrors the installer's
+   * `replaced` array so the REST handler can surface the same shape
+   * regardless of channel.
+   */
+  replaced: string[]
 }
 
 export class PluginLoader {
@@ -129,6 +137,22 @@ export class PluginLoader {
       throw new LoaderError('compile/no-export', 'host half must default-export a function (ctx) => ...')
     }
 
+    // (6b) Re-upload dedup: evict any prior run of the SAME manifest id
+    // before activating the new fiber, so the registry always holds
+    // exactly one entry per manifest id. lifecycle.remove disposes the
+    // old fiber (cordis Pages effect-chain unregisters its pages) AND
+    // broadcasts `browser-half.retract { id, pluginRunId }` to connected
+    // browsers so they drop the old browser half + pages. Without this
+    // step, re-uploading the same zip accumulates `run-2`, `run-3`,
+    // ... and the browser side's pages registry shadows new entries under
+    // stale pluginRunIds. The dedup runs after manifest validation so
+    // bad zips don't evict a healthy predecessor.
+    const replaced: string[] = []
+    for (const existing of this.deps.lifecycle.listById(id)) {
+      replaced.push(existing.pluginRunId)
+      await this.deps.lifecycle.remove(existing.pluginRunId)
+    }
+
     // (7) Load into cordis; register BEFORE awaiting activation so the
     // plugin is attributable (callerInitiator matches the lifecycle
     // registry by fiber uid) from its very first apply-time call. On
@@ -164,6 +188,7 @@ export class PluginLoader {
       manifest,
       compiledPath: compileResult.outputPath,
       zipPath,
+      replaced,
       ...(browserSource !== undefined ? { browserSource } : {}),
     }
   }

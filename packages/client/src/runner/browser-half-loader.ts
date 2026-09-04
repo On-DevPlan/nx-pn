@@ -44,6 +44,13 @@ export interface BrowserHalfLoadMessage {
 
 export interface BrowserHalfRetractMessage {
   pluginRunId: string
+  /**
+   * Manifest id of the retracted plugin. Present in frames from a host
+   * that has been updated to broadcast the manifest id (so the client
+   * can unregister pages by id, even when the old pluginRunId is no
+   * longer reachable). Optional for back-compat with older hosts.
+   */
+  id?: string
 }
 
 export interface BrowserHalfDeps {
