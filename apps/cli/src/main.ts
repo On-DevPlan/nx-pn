@@ -14,6 +14,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { npmInstallPlugin, uninstallNpmPlugin, startHost, type StartedHost } from '@flowot/nx-pn-host'
+import { InitError, scaffoldPlugin } from './init.js'
 
 export const DEFAULT_PORT = 4560
 
@@ -23,11 +24,17 @@ export interface CliOptions {
   /** Whether to auto-open the browser (default true; --no-open disables). */
   open: boolean
   /** Set when the first positional names a one-shot subcommand. */
-  subcommand?: 'add' | 'uninstall'
+  subcommand?: 'add' | 'uninstall' | 'init'
   /** For `add <spec>` — npm package name/spec or file: path. */
   spec?: string
   /** For `uninstall <id|runId>` — manifest id or pluginRunId. */
   pluginId?: string
+  /** For `init <name>` — plugin name (must match NAME_PATTERN). */
+  pluginName?: string
+  /** For `init <name>` — output directory (default: ./<name>). */
+  initDir?: string
+  /** For `init <name>` — overwrite existing non-empty directory. */
+  force?: boolean
 }
 
 export class CliArgError extends Error {}
@@ -70,6 +77,14 @@ export function parseArgs(argv: string[]): CliOptions {
       opts.open = false
       continue
     }
+    if (arg === '--dir' || arg.startsWith('--dir=')) {
+      opts.initDir = resolve(takeValue())
+      continue
+    }
+    if (arg === '--force' || arg === '-f') {
+      opts.force = true
+      continue
+    }
     if (arg.startsWith('-')) {
       throw new CliArgError(`unknown argument: ${arg} (try --help)`)
     }
@@ -78,7 +93,17 @@ export function parseArgs(argv: string[]): CliOptions {
 
   if (positionals.length > 0) {
     const cmd = positionals[0]!
-    if (cmd === 'add') {
+    if (cmd === 'init') {
+      opts.subcommand = 'init'
+      const nameArg = positionals[1]
+      if (nameArg === undefined || nameArg === '') {
+        throw new CliArgError('init requires a plugin name (lowercase letters, digits, hyphens)')
+      }
+      opts.pluginName = nameArg
+      if (positionals.length > 2) {
+        throw new CliArgError(`unexpected argument after name: ${positionals[2]}`)
+      }
+    } else if (cmd === 'add') {
       opts.subcommand = 'add'
       const specArg = positionals[1]
       if (specArg === undefined || specArg === '') {
@@ -112,10 +137,12 @@ export function printUsage(): void {
 Usage: nx-pn [command] [options]        (npx @flowot/nx-pn <command>)
 
 Commands:
-  add <spec>            Install a plugin by npm package name/spec
-                        (@scope/pkg, pkg@ver, or file:./folder) — npx-plugin
-  uninstall <id|runId>  Stop, unload and uninstall a plugin
-  (default)             Start the web server (dashboard) on --port
+  init <name>             Scaffold a new plugin (writes 8 template files)
+                          [--dir <path>] [--force]
+  add <spec>              Install a plugin by npm package name/spec
+                          (@scope/pkg, pkg@ver, or file:./folder) — npx-plugin
+  uninstall <id|runId>    Stop, unload and uninstall a plugin
+  (default)               Start the web server (dashboard) on --port
 
 Options:
   --port <n>            HTTP/WS port (default ${DEFAULT_PORT}; 0 = ephemeral)
@@ -144,6 +171,10 @@ export function openBrowser(url: string): void {
 /** Boot the host, install signal handlers, and block until stopped. */
 export async function runCli(argv: string[]): Promise<void> {
   const opts = parseArgs(argv)
+  if (opts.subcommand === 'init') {
+    await runInit(opts)
+    return
+  }
   if (opts.subcommand === 'add') {
     await runAdd(opts)
     return
@@ -165,6 +196,34 @@ async function runAdd(opts: CliOptions): Promise<void> {
   } finally {
     await host.stop()
   }
+}
+
+/** One-shot `api-audit init <name>`: scaffold an 8-file plugin directory. */
+async function runInit(opts: CliOptions): Promise<void> {
+  const dir = opts.initDir ?? join(process.cwd(), opts.pluginName!)
+  const result = await scaffoldPlugin({
+    name: opts.pluginName!,
+    dir,
+    force: opts.force ?? false,
+  })
+  // eslint-disable-next-line no-console
+  console.log(`✔ 已生成 ${result.dir} (${result.files.length} 个文件)`)
+  for (const f of result.files) {
+    // eslint-disable-next-line no-console
+    console.log(`    - ${f}`)
+  }
+  // eslint-disable-next-line no-console
+  console.log('')
+  // eslint-disable-next-line no-console
+  console.log('下一步:')
+  // eslint-disable-next-line no-console
+  console.log(`  cd ${result.dir}`)
+  // eslint-disable-next-line no-console
+  console.log('  npm install')
+  // eslint-disable-next-line no-console
+  console.log('  npm run build')
+  // eslint-disable-next-line no-console
+  console.log('  npx @flowot/nx-pn add file:.')
 }
 
 /** One-shot `api-audit uninstall <id|runId>`: stop + unload + drop ledger. */

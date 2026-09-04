@@ -10,6 +10,26 @@ The `api-audit` npx entry (spec §2.2). Boots the Node-side host
 npx @flowot/nx-pn            # → http://localhost:4560
 ```
 
+Commands:
+
+```bash
+npx @flowot/nx-pn init <name> [--dir <path>] [--force]
+```
+
+Scaffold a new plugin directory with 8 template files (manifest, package,
+host.ts, browser.tsx, tsconfig, README, build-zip.mjs, .gitignore). The
+`name` must match `^[a-z0-9][a-z0-9-]{0,63}$` and is used to derive the
+manifest id, page title (`My Plugin`), page path (`/my-plugin`), and React
+component name (`MyPlugin`).
+
+| Flag | Meaning |
+|---|---|
+| `--dir <path>` | Output directory (default: `./<name>`) |
+| `--force`, `-f` | Overwrite existing non-empty directory |
+
+After scaffolding, `cd` into the directory, `npm install`, `npm run build`,
+then upload the produced `dist/<name>.zip` to a running api-audit host.
+
 Flags:
 
 | Flag | Default | Meaning |

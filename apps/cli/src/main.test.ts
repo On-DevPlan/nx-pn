@@ -87,3 +87,32 @@ describe('parseArgs (spec §2.2)', () => {
     expect(() => parseArgs(['fritz'])).toThrow(/unknown argument/)
   })
 })
+
+describe('init <name>', () => {
+  it('sets subcommand=init and pluginName', () => {
+    const opts = parseArgs(['init', 'my-plugin'])
+    expect(opts.subcommand).toBe('init')
+    expect(opts.pluginName).toBe('my-plugin')
+  })
+
+  it('--dir resolves to absolute', () => {
+    expect(parseArgs(['init', 'x', '--dir', 'rel/dir']).initDir).toBe(resolve('rel/dir'))
+  })
+
+  it('--dir= accepts inline value', () => {
+    expect(parseArgs(['init', 'x', '--dir=/tmp/x']).initDir).toBe(resolve('/tmp/x'))
+  })
+
+  it('--force and -f enable overwrite', () => {
+    expect(parseArgs(['init', 'x', '--force']).force).toBe(true)
+    expect(parseArgs(['init', 'x', '-f']).force).toBe(true)
+  })
+
+  it('rejects missing name', () => {
+    expect(() => parseArgs(['init'])).toThrow(/requires a plugin name/)
+  })
+
+  it('rejects extra positionals', () => {
+    expect(() => parseArgs(['init', 'x', 'extra'])).toThrow(/unexpected argument/)
+  })
+})

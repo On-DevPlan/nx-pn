@@ -1,6 +1,6 @@
 {
   "name": "@flowot/nx-pn-host",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Node runtime for the nx-pn plugin platform: HTTP/WS server, cordis services, plugin loader/installer",
   "license": "MIT",
   "publishConfig": {

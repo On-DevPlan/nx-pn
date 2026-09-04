@@ -1,0 +1,33 @@
+{
+  "name": "{{id}}",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./host.js",
+  "exports": { ".": "./host.js" },
+  "description": "{{description}}",
+  "scripts": {
+    "build": "tsc --noEmit && node scripts/build-zip.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "esbuild": "^0.24.0",
+    "typescript": "5.6.3"
+  },
+  "api-audit": {
+    "manifest": {
+      "id": "{{id}}",
+      "version": "0.1.0",
+      "title": "{{title}}"
+    },
+    "browser": "./browser.js"
+  }
+}
