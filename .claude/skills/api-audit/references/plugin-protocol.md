@@ -1,5 +1,19 @@
 # Plugin protocol — the contract for plugin authors
 
+## Scaffolding a new plugin (start here)
+
+Don't hand-copy template files — `init` generates them for you:
+
+```bash
+npx @flowot/nx-pn init <name>    # → 8 files (manifest, package.json, host.ts,
+                                  #    browser.tsx, tsconfig, README,
+                                  #    scripts/build-zip.mjs, .gitignore)
+```
+
+Derives the manifest id, page title, page path, and React component name from
+`<name>`. The scaffolded plugin supports both install paths below out of the
+box. Full details: `references/scaffolding.md`.
+
 ## Two plugin sources
 
 ### 1. Zip dual-half (existing path)
@@ -49,6 +63,12 @@ Example format:
 
 - `pages[].path`: `^/[a-zA-Z0-9_\-/.:]*$`, must start with `/`
 - `pages[].order`: integer 0-10000 (default 100, sort weight)
+- `pages[].layout`: `'shell'` (default, page renders inside the shell's `<main>`) or
+  `'fullscreen'` (plugin claims the whole viewport — sidebar/brand hidden)
+- `pages[].routes[]`: plugin-owned sub-routes `{ path }` for fullscreen pages; `path` is
+  RELATIVE to the page prefix (`/detail`, or `/` / `''` for the bare prefix) and must
+  match `^/[a-zA-Z0-9_\-/.:]*$`. Declared for docs/validation only — the browser half
+  supplies the Components (see `references/fullscreen.md`).
 - `entry`: filename ending in `.js/.jsx/.ts/.tsx`
 - At least one of `host` or `browser` is required
 
@@ -139,6 +159,28 @@ const plugin = (ctx) => {
 }
 ```
 
+**Fullscreen + local sub-routes**: pass `layout: 'fullscreen'` plus a `routes[]`
+array — the plugin claims the whole viewport (no sidebar) and renders its OWN
+`<Routes>` under its prefix. Every registered route Component must be
+self-sufficient (carry the plugin's own top bar); the flat `Component` becomes
+the `*` fallback inside the plugin's local routing.
+
+```tsx
+ctx.pages.register({
+  pluginId: 'my-plugin',
+  path: '/my-plugin',
+  title: 'My Plugin',
+  layout: 'fullscreen',
+  routes: [
+    { path: '/', Component: DashboardView },   // bare prefix
+    { path: '/detail', Component: DetailView }, // /my-plugin/detail
+  ],
+  Component: DashboardView, // '*' fallback
+})
+```
+
+Full walkthrough: `references/fullscreen.md`.
+
 ## Replay
 
 `POST /api/replay { recordId }` re-invokes the same call (through `auditClient`)
@@ -151,6 +193,17 @@ with `initiator: "replay:<recordId>"`, producing a new `AuditRecord` with
   upload via `/api/plugins` or the Plugins page
 - **npm**: publish a package with `api-audit.manifest` + `api-audit.browser` in
   `package.json`, install via `npx @flowot/nx-pn add <name>`
+
+## Third-party author quick reference
+
+| Task | Command |
+|---|---|
+| Scaffold | `npx @flowot/nx-pn init <name>` |
+| Build | `cd <name> && npm install && npm run build` |
+| Local install (hot, live) | `curl -F zip=@dist/<name>.zip http://localhost:4560/api/plugins` |
+| Local install (ledger, next start) | `npx @flowot/nx-pn add file:./<name>` |
+| REST hot-install / hot-update | `POST /api/plugins/install {"spec":"file:<abs-path>"}` |
+| Publish | `npm publish` → users: `npx @flowot/nx-pn add <name>` |
 
 ## Full example
 
