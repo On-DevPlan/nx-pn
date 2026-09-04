@@ -30,7 +30,7 @@ export function useAuditRecords(runtime: BrowserRuntimeHandle | null) {
         void refresh()
       })
     }
-    const id = window.setInterval(() => void refresh(), 2000)
+    const id = window.setInterval(() => void refresh(), 5000)
     return () => {
       window.clearInterval(id)
       unsub?.()

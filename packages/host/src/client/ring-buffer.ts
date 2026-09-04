@@ -1,12 +1,12 @@
 /**
- * FIFO ring buffer for audit records. Spec §4.3 / §8.4: 1000-entry max.
+ * FIFO ring buffer for audit records. Keeps the most recent entries only.
  *
  * Memory-only by default; callers may opt-in to JSONL persistence.
  * Eviction is monotonic: oldest entry is dropped when full.
  */
 
 export interface RingBufferOptions<T extends { id: number }> {
-  /** Max entries before oldest is evicted. Default 1000. */
+  /** Max entries before oldest is evicted. Default 50. */
   capacity?: number
   /** Called with each pushed record (after id assignment). */
   onPush?: (record: T) => void
@@ -18,7 +18,7 @@ export class AuditRingBuffer<T extends { id: number }> {
   private readonly onPush: ((record: T) => void) | undefined
 
   constructor(opts: RingBufferOptions<T> = {}) {
-    this.capacity = opts.capacity ?? 1000
+    this.capacity = opts.capacity ?? 50
     this.onPush = opts.onPush
   }
 
