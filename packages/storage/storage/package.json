@@ -1,6 +1,6 @@
 {
   "name": "@flowot/nx-pn-storage",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Storage hub for the nx-pn plugin platform: named backend registry, KV unit contract, stable error codes (dsh storage-family port)",
   "license": "MIT",
   "publishConfig": {
