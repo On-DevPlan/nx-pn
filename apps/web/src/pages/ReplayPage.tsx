@@ -114,20 +114,21 @@ export function ReplayPage({ runtime }: { runtime: BrowserRuntimeHandle | null }
       <div className="replay-grid">
         <section className="card">
           <h2>1. 选择记录</h2>
-          <select value={recordId} onChange={(e) => setRecordId(Number(e.target.value) || '')}>
-            <option value="">请选择…</option>
-            {[...records].reverse().map((r) => (
-              <option key={r.id} value={r.id}>
-                #{r.id} {r.method} {r.url}
-              </option>
-            ))}
-          </select>
-
-          {hasCredentialHeaders && (
+          <div className="select">
+            <select value={recordId} onChange={(e) => setRecordId(Number(e.target.value) || '')}>
+              <option value="">请选择…</option>
+              {[...records].reverse().map((r) => (
+                <option key={r.id} value={r.id}>
+                  #{r.id} {r.method} {r.url}
+                </option>
+              ))}
+            </select>
+             {hasCredentialHeaders && (
             <div className="warn-box">
               此请求包含凭证，重放将使用当前凭证服务的值。
             </div>
           )}
+          </div>
 
           <h2>2. 编辑请求</h2>
           <div className="form-row">
@@ -143,7 +144,17 @@ export function ReplayPage({ runtime }: { runtime: BrowserRuntimeHandle | null }
           <label className="field-label">请求头 (每行 `Key: value`)</label>
           <textarea value={headersText} onChange={(e) => setHeadersText(e.target.value)} rows={4} className="mono" />
           <label className="field-label">请求体</label>
-          <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={6} className="mono" />
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={6}
+            className="mono"
+            disabled={isBodylessMethod(method)}
+            placeholder={isBodylessMethod(method) ? 'GET/HEAD 请求不携带请求体' : ''}
+          />
+          {isBodylessMethod(method) && (
+            <div className="muted">GET/HEAD 请求不携带请求体；上方内容仅作为编辑参考，重放时不会发送。</div>
+          )}
 
           {selected?.reqBody.truncated && (
             <div className="muted">原始请求体已截断，重放将使用截断版本。</div>
@@ -242,4 +253,8 @@ function parseHeaders(text: string): Record<string, string> {
     if (key) out[key] = value
   }
   return out
+}
+
+function isBodylessMethod(method: string): boolean {
+  return method === 'GET' || method === 'HEAD'
 }

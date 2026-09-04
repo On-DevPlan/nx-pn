@@ -307,4 +307,55 @@ describe('startHost integration', () => {
       await new Promise<void>((resolve) => upstream.close(() => resolve()))
     }
   })
+
+  it('replay: overriding method to GET on a body-bearing record succeeds', async () => {
+    // Regression: replaying a POST (with body) but switching the method to
+    // GET used to crash with "Request with GET/HEAD method cannot have
+    // body" because the route carried the original body into the GET
+    // context. Replay must strip the body when method is GET/HEAD.
+    const host = await makeHost()
+
+    const { createServer } = await import('node:http')
+    const upstream = createServer((req, res) => {
+      res.setHeader('content-type', 'application/json')
+      // Echo method + url so we can confirm what reached the upstream.
+      res.end(JSON.stringify({ method: req.method, url: req.url }))
+    })
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve))
+    const upstreamPort = (upstream.address() as { port: number }).port
+
+    try {
+      // 1. POST something so the record carries a body.
+      await host.client.post(`http://127.0.0.1:${upstreamPort}/original`, { hi: 'there' })
+      const audit1 = await (await fetch(`http://127.0.0.1:${host.port}/api/audit`)).json()
+      const original = audit1.data.records[0]
+      expect(original.method).toBe('POST')
+      expect(original.reqBody.text).toBe('{"hi":"there"}')
+
+      // 2. Replay but override method → GET. The route must drop the body
+      //    so undici does not throw.
+      const replayRes = await fetch(`http://127.0.0.1:${host.port}/api/replay`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          recordId: original.id,
+          overrides: { method: 'GET', url: `http://127.0.0.1:${upstreamPort}/replayed` },
+        }),
+      })
+      expect(replayRes.status).toBe(200)
+      const replay = await replayRes.json()
+      expect(replay.ok).toBe(true)
+      expect(replay.data.status).toBe(200)
+
+      // 3. The new audit record reflects GET with no body.
+      const audit2 = await (await fetch(`http://127.0.0.1:${host.port}/api/audit`)).json()
+      const replayed = audit2.data.records[1]
+      expect(replayed.method).toBe('GET')
+      expect(replayed.url).toBe(`http://127.0.0.1:${upstreamPort}/replayed`)
+      expect(replayed.reqBody.text).toBe('')
+      expect(replayed.replayOf).toBe(original.id)
+    } finally {
+      await new Promise<void>((resolve) => upstream.close(() => resolve()))
+    }
+  })
 })
