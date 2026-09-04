@@ -193,6 +193,28 @@ body {
   max-width: 100%;
 }
 
+/* ── fullscreen plugin pages ────────────────────────── */
+
+/* A `layout: 'fullscreen'` plugin page claims the WHOLE viewport: the
+ * shell renders it without sidebar/brand (structural — the <aside> is
+ * simply not mounted for that subtree), so this root owns 100vw. */
+.fullscreen-root {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.fullscreen-root > * {
+  width: 100%;
+}
+
+/* Fullscreen plugin pages keep a little breathing room around their own
+ * content (the shell's .main padding no longer applies). */
+.fullscreen-root .page {
+  padding: 20px 28px;
+}
+
 .page {
   /* Fill the main column; cap only at ultra-wide (4K+) so single-row
    * table rows don't get silly long. Sidebar (200px) + main padding
