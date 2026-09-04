@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { DEFAULT_PORT, parseArgs, CliArgError } from './main.js'
+import { DEFAULT_PORT, parseArgs, CliArgError, probeHost, forwardInstall } from './main.js'
 
 describe('parseArgs (spec §2.2)', () => {
   it('defaults: port 4560, ~/.api-audit, open', () => {
@@ -114,5 +114,66 @@ describe('init <name>', () => {
 
   it('rejects extra positionals', () => {
     expect(() => parseArgs(['init', 'x', 'extra'])).toThrow(/unexpected argument/)
+  })
+})
+
+describe('probeHost (add → live-host forwarding)', () => {
+  it('returns false when nothing listens on the port', async () => {
+    // Port 1 is almost certainly closed; the fetch fails fast (ECONNREFUSED).
+    const alive = await probeHost(1)
+    expect(alive).toBe(false)
+  })
+
+  it('returns true when a host responds 200 on /api/plugins', async () => {
+    const { createServer } = await import('node:http')
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end('{"ok":true,"data":[]}')
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    try {
+      const port = (server.address() as { port: number }).port
+      expect(await probeHost(port)).toBe(true)
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()))
+    }
+  })
+})
+
+describe('forwardInstall (add → live-host forwarding)', () => {
+  it('POSTs {spec} to /api/plugins/install and returns the data payload', async () => {
+    const { createServer } = await import('node:http')
+    const bodies: string[] = []
+    const server = createServer(async (req, res) => {
+      const chunks: Buffer[] = []
+      for await (const c of req) chunks.push(c as Buffer)
+      bodies.push(Buffer.concat(chunks).toString('utf-8'))
+      res.writeHead(201, { 'content-type': 'application/json' })
+      res.end('{"ok":true,"data":{"id":"demo","pluginRunId":"run-9","version":"0.1.0"}}')
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    try {
+      const port = (server.address() as { port: number }).port
+      const r = await forwardInstall(port, 'file:./demo')
+      expect(r).toEqual({ id: 'demo', pluginRunId: 'run-9', version: '0.1.0' })
+      expect(JSON.parse(bodies[0]!)).toEqual({ spec: 'file:./demo' })
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()))
+    }
+  })
+
+  it('throws with the error code on a non-2xx / ok:false reply', async () => {
+    const { createServer } = await import('node:http')
+    const server = createServer((_req, res) => {
+      res.writeHead(400, { 'content-type': 'application/json' })
+      res.end('{"ok":false,"error":{"code":"install/invalid-manifest","message":"bad manifest"}}')
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    try {
+      const port = (server.address() as { port: number }).port
+      await expect(forwardInstall(port, 'file:./broken')).rejects.toThrow(/install\/invalid-manifest/)
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()))
+    }
   })
 })

@@ -140,7 +140,10 @@ Commands:
   init <name>             Scaffold a new plugin (writes 8 template files)
                           [--dir <path>] [--force]
   add <spec>              Install a plugin by npm package name/spec
-                          (@scope/pkg, pkg@ver, or file:./folder) — npx-plugin
+                          (@scope/pkg, pkg@ver, or file:./folder) — npx-plugin.
+                          Forwards to a live host on --port (hot-add) when one
+                          is running; otherwise writes the npm ledger (takes
+                          effect on the next host start)
   uninstall <id|runId>    Stop, unload and uninstall a plugin
   (default)               Start the web server (dashboard) on --port
 
@@ -188,14 +191,65 @@ export async function runCli(argv: string[]): Promise<void> {
 
 /** One-shot `api-audit add <spec>`: install by name into the live host. */
 async function runAdd(opts: CliOptions): Promise<void> {
+  // Probe for a long-running host first: alive → forward the install REST
+  // route so the plugin hot-adds (and hot-updates) into the running host
+  // (eating the installer's upsert semantics); not alive → fall back to the
+  // ephemeral one-shot path, which only writes the npm ledger and takes
+  // effect on the next host start (restartNpmPlugins).
+  const alive = await probeHost(opts.port)
+  if (alive) {
+    const forwarded = await forwardInstall(opts.port, opts.spec!)
+    // eslint-disable-next-line no-console
+    console.log(`✔ 已安装插件 ${forwarded.id} (v${forwarded.version}) 到运行中的 host :${opts.port}, run=${forwarded.pluginRunId}`)
+    // eslint-disable-next-line no-console
+    console.log(`  (热添加已生效 — 无需重启;浏览器侧边栏即时更新)`)
+    return
+  }
   const host: StartedHost = await startHost({ port: 0, dataDir: opts.dataDir })
   try {
     const r = await npmInstallPlugin({ spec: opts.spec!, dataDir: opts.dataDir, ctx: host.ctx, lifecycle: host.lifecycle })
     // eslint-disable-next-line no-console
     console.log(`✔ 已安装插件 ${r.id} (v${r.version}), run=${r.pluginRunId}`)
+    // eslint-disable-next-line no-console
+    console.log(`  (ledger 路径 — 下次 host 启动时生效;当前无运行中的 host :${opts.port})`)
   } finally {
     await host.stop()
   }
+}
+
+/**
+ * Probe whether a long-running host is alive on `port`. Uses `GET
+ * /api/plugins` as the liveness signal (there is no /api/health route;
+ * this list route is stable and returns 200 {"ok":true,...} on a live
+ * host). Returns false on connection error or non-200.
+ */
+export async function probeHost(port: number): Promise<boolean> {
+  try {
+    const res = await fetch(`http://localhost:${port}/api/plugins`, { signal: AbortSignal.timeout(3000) })
+    return res.status === 200
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Forward `spec` to a live host's `POST /api/plugins/install` route —
+ * the host hot-adds (or hot-updates, upsert) the plugin without restart,
+ * and pushes the browser half to every connected web shell.
+ */
+export async function forwardInstall(port: number, spec: string): Promise<{ id: string; pluginRunId: string; version: string }> {
+  const res = await fetch(`http://localhost:${port}/api/plugins/install`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ spec }),
+    signal: AbortSignal.timeout(60000),
+  })
+  const json = (await res.json()) as { ok: boolean; data?: { id: string; pluginRunId: string; version?: string }; error?: { code: string; message: string } }
+  if (!res.status.toString().startsWith('2') || !json.ok || !json.data) {
+    const err = json.error
+    throw new Error(`install failed on live host :${port} (${err?.code ?? 'unknown'}): ${err?.message ?? json.data?.id ?? 'no data'}`)
+  }
+  return { id: json.data.id, pluginRunId: json.data.pluginRunId, version: json.data.version ?? json.data.id }
 }
 
 /** One-shot `api-audit init <name>`: scaffold an 8-file plugin directory. */
