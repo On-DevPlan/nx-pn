@@ -152,11 +152,30 @@ packages/
   host/                # Node runtime: cordis ctx, HTTP+WS, audit pipeline,
                        #   plugin installer (npm install-by-name) + zip loader
   client/              # browser runtime: WS RPC, Pages service, client proxy
+  storage/
+    storage/           # @flowot/nx-pn-storage           hub: BackendRegistry +
+                       #   KvUnit contract, UNIT_NAME_RE, stable error codes
+    storage-json/      # @flowot/nx-pn-storage-json      JSON file backend
+                       #   (single + per-record layouts, atomic writeAtomic)
+    storage-sqlite/    # @flowot/nx-pn-storage-sqlite    SQLite backend
+                       #   (node:sqlite, per-table STRICT, PRAGMA user_version)
+    storage-domain/    # @flowot/nx-pn-storage-domain    domain data form:
+                       #   defineDomain + zod record schemas, single write
+                       #   chain, durable-before-emit domain/changed events
 plugins/
   example-api/         # demo dual-half zip plugin (built artifact: dist/*.zip)
 docs/
   superpowers/specs/   # design spec
 ```
+
+The storage family is a port of dsh's `storage` family (`storage`,
+`storage-domain`, `storage-json`, `storage-sqlite`): a hub that hosts pluggable
+backends (with two atomic publish semantics — single-file and per-record) and
+a domain data form that gives them schema-validated, change-emitting KV with a
+serialized single-write chain. Pure libraries — no cordis dependency; host owns
+assembly. Audit records, the npm-install ledger, and credentials all live as
+storage domains; every loaded plugin gets an isolated `plugin-<id>` namespace
+domain (`settings` / `cache` / `state`).
 
 ## Development
 
