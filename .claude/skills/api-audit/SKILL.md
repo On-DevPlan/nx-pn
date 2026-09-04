@@ -66,6 +66,9 @@ You don't need to read anything in `core-developer/` — start here.
   (`pages` / `auditClient` / `hostCall`), attribution rules, replay.
 - `references/plugin-developer/scaffolding.md` — `npx @flowot/nx-pn init my-plugin` produces
   8 files. Walk through each.
+- `references/plugin-developer/cli-automation.md` — the CLI as an automation surface: build /
+  install / plugin management / audit-trail queries (`--format jsonl|csv`) from the terminal or
+  an agent — no browser required. Read this if you want to script your plugin's dev loop.
 - `references/plugin-developer/walkthrough-echo.md` — second plugin end-to-end (the
   user-driven request tester). Read this if you want a complete real example with both
   halves and audit attribution.
@@ -79,4 +82,5 @@ You don't need to read anything in `core-developer/` — start here.
 | Add a feature to the platform itself | `core-developer/architecture.md` → `extending.md` |
 | Debug a problem with the host / web / plugin-sync | `core-developer/operations.md` |
 | Build a brand-new plugin (the common case) | `plugin-developer/plugin-contract.md` → `scaffolding.md` |
+| Script / automate your plugin's dev loop (no browser) | `plugin-developer/cli-automation.md` |
 | See a complete plugin with audit + replay | `plugin-developer/walkthrough-echo.md` |
