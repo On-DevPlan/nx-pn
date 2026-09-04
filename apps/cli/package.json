@@ -1,6 +1,6 @@
 {
   "name": "@flowot/nx-pn",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "nx-pn CLI — start the api-audit web workbench, install/uninstall plugins (npx @flowot/nx-pn)",
   "license": "MIT",
   "publishConfig": {
@@ -12,8 +12,14 @@
     "directory": "apps/cli"
   },
   "type": "module",
-  "bin": { "nx-pn": "./bin/nx-pn.mjs" },
-  "files": ["bin", "lib", "!lib/*.tsbuildinfo"],
+  "bin": {
+    "nx-pn": "./bin/nx-pn.mjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "!lib/*.tsbuildinfo"
+  ],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",

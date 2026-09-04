@@ -1,6 +1,6 @@
 {
   "name": "@flowot/nx-pn-client",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Browser runtime for the nx-pn plugin platform: WS RPC, Pages service, auditClient proxy",
   "license": "MIT",
   "publishConfig": {
@@ -21,7 +21,10 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["lib", "!lib/*.tsbuildinfo"],
+  "files": [
+    "lib",
+    "!lib/*.tsbuildinfo"
+  ],
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
