@@ -1,6 +1,6 @@
 {
   "name": "nx-pn",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Unscoped alias for @flowot/nx-pn — `npx nx-pn` starts the api-audit web workbench",
   "license": "MIT",
   "publishConfig": {

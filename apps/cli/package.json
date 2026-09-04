@@ -1,6 +1,6 @@
 {
   "name": "@flowot/nx-pn",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "nx-pn CLI — start the api-audit web workbench, install/uninstall plugins (npx @flowot/nx-pn)",
   "license": "MIT",
   "publishConfig": {
