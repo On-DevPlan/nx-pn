@@ -103,6 +103,40 @@ The workspace glob `packages/*` in `pnpm-workspace.yaml` already covers it. Run
 4. Re-run `pnpm check:spec` — `validateManifest` will reject non-conforming zips
 5. Add a test in `packages/core/src/__tests__/manifest.test.ts`
 
+## 注册全屏页面 + 局部路由（fullscreen page + local routes）
+
+A PLUGIN registers a fullscreen page (plugin author view — shell support
+already exists):
+
+1. In the plugin's `browser.tsx`, register with `layout` + `routes`
+   (`packages/client` `PageRegistration`; shell splits on `layout`):
+   ```tsx
+   ctx.pages.register({
+     pluginId: id,
+     path: '/my-plugin',            // page PREFIX
+     title: 'My Plugin',
+     layout: 'fullscreen',
+     routes: [
+       { path: '/', Component: DashboardView },    // bare prefix
+       { path: '/detail', Component: DetailView }, // /my-plugin/detail
+     ],
+     Component: DashboardView,       // '*' fallback inside local routing
+   })
+   ```
+2. Every route Component must be **self-sufficient** (own top bar / nav) —
+   the shell renders it standalone; there is no plugin-level wrapper.
+   Reference: `plugins/devctr-kv/browser.tsx` (`TopBar` + per-view wrappers).
+3. Declare the same shape in `manifest.json` under
+   `halves.browser.pages[]` (`layout: 'fullscreen'`, `routes: [{ path }]`) —
+   validated by `packages/core/src/schema/manifest.schema.json`.
+4. `/` (or `''`) matches the bare prefix; other paths are relative to it.
+5. Full walkthrough: `references/fullscreen.md`.
+
+SHELL-side mechanics (for changes to how the shell renders them): the split
++ local `<Routes>` live in `apps/web/src/App.tsx` (`FullscreenSlot` /
+`PluginLocalRoutes` / `ShellLayout`); `.fullscreen-root` in
+`apps/web/src/styles.css`.
+
 ## Building & testing after changes
 
 ```bash

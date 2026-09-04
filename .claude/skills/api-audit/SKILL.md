@@ -7,13 +7,14 @@ description: Use when working inside the api-audit monorepo — building, testin
 
 An npx-plugin plugin platform (nx-pn = npx-plugin). Plugins ship a UI page + API; all
 network IO goes through core's unified `auditClient`; core provides the audit-occurrence
-+ replay hooks.
++ replay hooks. Pages default to a flat view inside the shell sidebar; a plugin can also
+claim the whole viewport (`layout: 'fullscreen'`) and manage its own sub-routes.
 
 ## Monorepo layout
 
 | Path | Role |
 |---|---|
-| `apps/cli` | `npx @flowot/nx-pn` entry — start web, `add`/`uninstall` subcommands |
+| `apps/cli` | `npx @flowot/nx-pn` entry — start web, `init`/`add`/`uninstall` subcommands |
 | `apps/web` | Vite + React shell — sidebar, Audit/Replay/Plugins pages, plugin page host |
 | `packages/core` | Zero-cordis pure contracts (Manifest, AuditClient, Middleware) |
 | `packages/host` | Node runtime — HTTP, WS RPC, cordis services, plugin loader/installer |
@@ -32,6 +33,7 @@ without dragging cordis or any other runtime dep across the boundary.
 pnpm install
 pnpm -r build
 npx @flowot/nx-pn                  # starts web on :4560
+npx @flowot/nx-pn init my-plugin   # scaffold a new third-party plugin (8 files)
 ```
 
 ## How to read this skill
@@ -42,4 +44,6 @@ Each reference file answers one question. SKILL.md orients.
 - **How do I develop within the repo?** → `references/development.md`
 - **How do I extend (add packages, services, routes, pages, manifest fields)?** → `references/extension.md`
 - **What's the contract for plugin authors?** → `references/plugin-protocol.md`
+- **How do I scaffold a new third-party plugin (`init`)?** → `references/scaffolding.md`
+- **How do I build a fullscreen plugin with local sub-routes?** → `references/fullscreen.md`
 - **Walkthrough of the second plugin?** → `references/second-plugin.md`
