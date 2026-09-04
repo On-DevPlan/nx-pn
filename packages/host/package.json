@@ -37,7 +37,11 @@
     "cordis": "^4.0.0-rc.9",
     "esbuild": "^0.24.0",
     "undici": "^6.0.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@flowot/nx-pn-storage": "workspace:^",
+    "@flowot/nx-pn-storage-json": "workspace:^",
+    "@flowot/nx-pn-storage-domain": "workspace:^",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.7.0",

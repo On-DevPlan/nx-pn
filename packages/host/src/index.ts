@@ -9,11 +9,17 @@
 
 import { CordisContext, type Context } from './cordis/cordis-shim.js'
 
+import { join } from 'node:path'
+import { Storage } from '@flowot/nx-pn-storage'
+import { JsonStorageBackend } from '@flowot/nx-pn-storage-json'
+import { DomainFacility, type Domain, type DomainSpec } from '@flowot/nx-pn-storage-domain'
+
 import { startHttpServer, type StartedHttp } from './server/http-server.js'
 import { WsHostServer } from './ws/ws-server.js'
 import { BrowserHalfPusher } from './ws/browser-half-pusher.js'
 import { AuditRingBuffer } from './client/ring-buffer.js'
 import { HostAuditClient } from './client/audit-client.js'
+import type { AuditRecord } from './client/audit-record.js'
 import { PluginLifecycle } from './plugins/lifecycle.js'
 import { PluginLoader } from './plugins/loader.js'
 import {
@@ -30,6 +36,10 @@ import {
 import { AuditPageHostPlugin } from './cordis/builtin-plugins/audit-page.js'
 import { ReplayPageHostPlugin } from './cordis/builtin-plugins/replay-page.js'
 import { PluginsPageHostPlugin } from './cordis/builtin-plugins/plugins-page.js'
+import { auditSpec, type AuditSpec } from './domains/audit-domain.js'
+import { pluginsSpec } from './domains/plugins-domain.js'
+import { credentialsSpec, type CredentialsSpec } from './domains/credentials-domain.js'
+import { pluginNsSpec, PLUGIN_NS_TABLES } from './cordis/plugin-storage-service.js'
 
 export interface StartHostOptions {
   /** 0 = ephemeral port. */
@@ -47,11 +57,15 @@ export interface StartedHost {
   http: StartedHttp
   ws: WsHostServer
   client: HostAuditClient
-  buffer: AuditRingBuffer<import('./client/audit-record.js').AuditRecord>
+  buffer: AuditRingBuffer<AuditRecord>
   lifecycle: PluginLifecycle
   loader: PluginLoader
   port: number
   dataDir: string
+  /** Opened storage domains (diagnostics / tests). */
+  auditDomain: Domain<AuditSpec>
+  pluginsDomain: Domain<typeof pluginsSpec>
+  credentialsDomain: Domain<CredentialsSpec>
   stop(): Promise<void>
 }
 
@@ -76,12 +90,57 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
     ws.forEach((_s, bridge) => bridge.sendNotification(op, payload))
   }
 
-  const buffer = new AuditRingBuffer<import('./client/audit-record.js').AuditRecord>({
+  // ── storage assembly (v1 durable + v2 plugin ns) ─────────────────────
+  // Everything durable lives under <dataDir>/storage: the audit trail, the
+  // npm ledger, resolved credentials, and one `plugin-<id>` namespace per
+  // loaded plugin. The facility stays a local — `storage.domain` is typed
+  // `never` (StorageForms has no `domain` member in the pure-lib port), so
+  // the host holds it directly.
+  const storage = new Storage()
+  const jsonBackend = new JsonStorageBackend(join(opts.dataDir, 'storage'))
+  const unregisterJsonBackend = storage.backend.register('json', jsonBackend)
+  const storageLogger = {
+    warn: (m: string) => ctx.logger.warn(m),
+    error: (m: string) => ctx.logger.error(m),
+  }
+  const facility = new DomainFacility({
+    storage,
+    backend: 'json',
+    // domain/changed notifications are a future WS push surface (v1: no-op)
+    emit: () => {},
+    logger: storageLogger,
+  })
+  const auditDomain = await facility.open(auditSpec)
+  const pluginsDomain = await facility.open(pluginsSpec)
+  const credentialsDomain = await facility.open(credentialsSpec)
+
+  // Plugin ns storage (v2): lifecycle.register opens `plugin-<id>` domains
+  // through this opener; loader / installer await the open before the
+  // plugin's fiber activates (see lifecycle.ts).
+  lifecycle.setPluginNsOpener((id) => facility.open(pluginNsSpec(id)))
+
+  // Rebuild the live buffer from the durable audit trail (ids map 1:1 to
+  // the persisted `String(id)` keys; the buffer keeps only its capacity of
+  // newest records but lastId resumes from the trail's maximum). rebuild
+  // never fires onPush — history is not re-broadcast.
+  const buffer = new AuditRingBuffer<AuditRecord>({
     onPush: (record) => broadcast('audit.append', record),
   })
-  const client = new HostAuditClient({ buffer })
+  {
+    const existing: AuditRecord[] = []
+    for (const [key, value] of auditDomain.table('records').entries()) {
+      existing.push({ ...(value as AuditRecord), id: Number(key) })
+    }
+    buffer.rebuild(existing)
+  }
+  // Durable-first audit pipeline: every record is persisted to the audit
+  // domain BEFORE it enters the buffer / broadcasts (a persist failure
+  // drops the record from both — see audit-middleware.ts).
+  const persistAudit = (record: AuditRecord): Promise<void> =>
+    auditDomain.table('records').put(String(record.id), record)
+  const client = new HostAuditClient({ buffer, persist: persistAudit })
   const loader = new PluginLoader({ dataDir: opts.dataDir, ctx, lifecycle })
-  const depsBag: HostDeps = { ringBuffer: buffer, client, loader, lifecycle }
+  const depsBag: HostDeps = { ringBuffer: buffer, client, loader, lifecycle, credentialsDomain, auditDomain }
 
   setHostDeps(depsBag)
 
@@ -233,19 +292,107 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
       if (frame.op === 'tool.invoke') {
         void handleToolInvoke(bridge, frame)
       }
+      if (frame.op.startsWith('plugin-storage.')) {
+        void handlePluginStorage(bridge, frame)
+      }
     })
+  }
+
+  /**
+   * Browser-side plugin-namespace storage RPC (v2 wire surface). Frames:
+   *
+   *   { pluginRunId, table, key, value? }  under op
+   *   plugin-storage.get | .put | .delete | .keys
+   *
+   * Attribution: `pluginRunId` MUST resolve to a live lifecycle entry whose
+   * namespace domain is open — the browser half may only touch its OWN
+   * `plugin-<id>` domain, never another plugin's (an unknown run or an
+   * undeclared table answers with an error frame, `plugin-ns-denied` /
+   * `no-such-run`). Replies follow the rpc.result envelope ({ ok, data }).
+   */
+  async function handlePluginStorage(
+    bridge: import('./ws/rpc-bridge.js').RpcBridge,
+    frame: import('./ws/rpc-bridge.js').RpcFrame,
+  ): Promise<void> {
+    const payload = (frame.payload ?? {}) as {
+      pluginRunId?: unknown
+      table?: unknown
+      key?: unknown
+      value?: unknown
+    }
+    const action = frame.op.slice('plugin-storage.'.length) as 'get' | 'put' | 'delete' | 'keys'
+    const runId = typeof payload.pluginRunId === 'string' ? payload.pluginRunId : ''
+    const reply = (ok: boolean, data?: unknown, code?: string, message?: string): void => {
+      bridge.sendResult(
+        frame.requestId,
+        ok
+          ? { ok: true, data }
+          : { ok: false, error: { code: code ?? 'plugin-ns-denied', message: message ?? 'plugin namespace access denied' } },
+        frame.generation,
+      )
+    }
+    if (!runId) {
+      reply(false, undefined, 'no-such-run', 'pluginRunId is required')
+      return
+    }
+    const entry = lifecycle.byRunId(runId)
+    if (!entry?.storageDomain) {
+      reply(false, undefined, 'no-such-run', `pluginRunId ${runId} has no open storage namespace`)
+      return
+    }
+    const domain = entry.storageDomain as Domain<DomainSpec>
+    const tableName = typeof payload.table === 'string' ? payload.table : ''
+    if (!(PLUGIN_NS_TABLES as readonly string[]).includes(tableName)) {
+      reply(false, undefined, 'plugin-ns-denied', `table '${tableName}' is not declared in namespace plugin-${entry.id}`)
+      return
+    }
+    const table = domain.table(tableName)
+    const key = typeof payload.key === 'string' ? payload.key : ''
+    try {
+      switch (action) {
+        case 'get':
+          if (!key) {
+            reply(false, undefined, 'plugin-ns-denied', 'key is required')
+            return
+          }
+          reply(true, table.get(key))
+          return
+        case 'put':
+          if (!key) {
+            reply(false, undefined, 'plugin-ns-denied', 'key is required')
+            return
+          }
+          await table.put(key, payload.value)
+          reply(true, undefined)
+          return
+        case 'delete':
+          if (!key) {
+            reply(false, undefined, 'plugin-ns-denied', 'key is required')
+            return
+          }
+          reply(true, await table.delete(key))
+          return
+        case 'keys':
+          reply(true, [...table.keys()])
+          return
+      }
+    } catch (err) {
+      reply(false, undefined, 'plugin-ns-denied', err instanceof Error ? err.message : String(err))
+    }
   }
 
   const http = await startHttpServer({
     ringBuffer: buffer,
+    auditDomain,
     client,
     loader,
     lifecycle,
     browserHalfPusher,
-    installNpm: (spec: string) => npmInstallPlugin({ spec, dataDir: opts.dataDir, ctx, lifecycle }),
+    installNpm: (spec: string) =>
+      npmInstallPlugin({ spec, dataDir: opts.dataDir, ctx, lifecycle, pluginsDomain }),
     uninstallNpm: async (pluginRunId: string) => {
       const entry = lifecycle.byRunId(pluginRunId)
-      if (entry) await uninstallNpmPlugin({ id: entry.id, dataDir: opts.dataDir })
+      if (entry) await uninstallNpmPlugin({ id: entry.id, dataDir: opts.dataDir, pluginsDomain })
     },
   }, { ...(opts.port !== undefined ? { port: opts.port } : {}), ...(opts.host !== undefined ? { host: opts.host } : {}) })
   http.server.on('upgrade', (req, socket, head) => {
@@ -260,7 +407,8 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
     socket.destroy()
   })
 
-  // Wire the four core services + the three built-in plugins.
+  // Wire the core services (auditClient, auditStore, plugins,
+  // credentials, pluginStorage) + the three built-in plugins.
   installCoreServices(ctx, depsBag)
   ctx.registry.plugin(AuditPageHostPlugin)
   ctx.registry.plugin(ReplayPageHostPlugin)
@@ -275,7 +423,7 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
     }
     // install-by-name plugins: replay the npm registry ledger (best-effort).
     try {
-      await restartNpmPlugins({ dataDir: opts.dataDir, ctx, lifecycle })
+      await restartNpmPlugins({ dataDir: opts.dataDir, ctx, lifecycle, pluginsDomain })
     } catch {
       // offline / broken spec — host still boots
     }
@@ -285,10 +433,18 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
   async function stop(): Promise<void> {
     if (stopped) return
     stopped = true
-    await lifecycle.stopAll()
+    await lifecycle.stopAll() // disposes fibers, closes plugin-<id> domains
     await client.close()
     await ws.close()
     await http.close()
+    // Storage teardown LAST: closeAll drains every still-open domain
+    // (audit / plugins / credentials — plugin ns domains are already
+    // closed by lifecycle.stopAll; double close is idempotent), then the
+    // backend unregister + medium release follow the assembly's reverse
+    // order.
+    await facility.closeAll()
+    unregisterJsonBackend()
+    await jsonBackend.close()
     clearHostDeps()
   }
 
@@ -302,6 +458,9 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
     loader,
     port: http.port,
     dataDir: opts.dataDir,
+    auditDomain,
+    pluginsDomain,
+    credentialsDomain,
     stop,
   }
 }

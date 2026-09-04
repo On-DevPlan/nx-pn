@@ -207,7 +207,7 @@ async function runAdd(opts: CliOptions): Promise<void> {
   }
   const host: StartedHost = await startHost({ port: 0, dataDir: opts.dataDir })
   try {
-    const r = await npmInstallPlugin({ spec: opts.spec!, dataDir: opts.dataDir, ctx: host.ctx, lifecycle: host.lifecycle })
+    const r = await npmInstallPlugin({ spec: opts.spec!, dataDir: opts.dataDir, ctx: host.ctx, lifecycle: host.lifecycle, pluginsDomain: host.pluginsDomain })
     // eslint-disable-next-line no-console
     console.log(`✔ 已安装插件 ${r.id} (v${r.version}), run=${r.pluginRunId}`)
     // eslint-disable-next-line no-console
@@ -290,7 +290,7 @@ async function runUninstall(opts: CliOptions): Promise<void> {
       throw new CliArgError(`plugin not found: ${target} (is it installed in ${opts.dataDir}?)`)
     }
     await host.lifecycle.remove(entry.pluginRunId)
-    await uninstallNpmPlugin({ id: entry.id, dataDir: opts.dataDir })
+    await uninstallNpmPlugin({ id: entry.id, dataDir: opts.dataDir, pluginsDomain: host.pluginsDomain })
     // eslint-disable-next-line no-console
     console.log(`✔ 已卸载插件 ${entry.id} (run=${entry.pluginRunId})`)
   } finally {

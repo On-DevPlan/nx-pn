@@ -6,10 +6,12 @@
  *     → validateManifest(parsed)
  *     → esbuild compile host half → data-dir/cache/compiled/<id>-<hash>.mjs
  *     → pathToFileURL(.mjs).href → import()
- *     → ctx.plugin(halfFn, { name: id })
+ *     → lifecycle.register { id, pluginRunId } (opens plugin-<id> ns domain)
+ *     → await ns domain open (fail-loud: no open domain, no plugin)
+ *     → ctx.plugin(wrappedFn, { name: id }) — wrappedFn injects
+ *       ctx.pluginStorage over the open domain
  *     → await fiber.await()
- *     → register { id, pluginRunId, fiber }
- *     → on failure: catch → await fiber.dispose() → throw
+ *     → on failure: catch → lifecycle.remove (fiber dispose + ns close) → throw
  */
 
 import { mkdir, writeFile, rm, readFile, readdir, realpath } from 'node:fs/promises'
@@ -27,6 +29,7 @@ import {
 
 import { compileHostHalf, importCompiledModule } from './host-compiler.js'
 import { PluginLifecycle } from './lifecycle.js'
+import { makePluginStorage } from '../cordis/plugin-storage-service.js'
 
 export interface LoaderDeps {
   dataDir: string
@@ -153,20 +156,72 @@ export class PluginLoader {
       await this.deps.lifecycle.remove(existing.pluginRunId)
     }
 
-    // (7) Load into cordis; register BEFORE awaiting activation so the
-    // plugin is attributable (callerInitiator matches the lifecycle
-    // registry by fiber uid) from its very first apply-time call. On
-    // failure the entry is evicted again.
-    const fiber = this.deps.ctx.registry.plugin(halfFn as never, { name: id } as never) as Fiber
+    // (7) Namespace storage BEFORE activation (v2): register the entry —
+    // `lifecycle.register` kicks off the `plugin-<id>` storage domain open
+    // — and await the open BEFORE loading the half into cordis, so
+    // apply-time `ctx.pluginStorage` is always backed by an OPEN domain
+    // (an open failure fails the load loud and evicts the entry). The
+    // fiber is created afterwards and back-filled onto the entry; the
+    // entry being registered first keeps the plugin attributable from
+    // its first apply-time auditClient call (callerInitiator matches by
+    // fiber uid).
     const pluginRunId = this.deps.lifecycle.nextRunId()
-    this.deps.lifecycle.register({
+    const entry: import('./lifecycle.js').LifecycleEntry = {
       id,
       pluginRunId,
-      fiber,
       zipPath,
       manifest,
       ...(browserSource !== undefined ? { browserSource } : {}),
-    })
+    }
+    this.deps.lifecycle.register(entry)
+    if (entry.storagePromise) {
+      try {
+        await entry.storagePromise
+      } catch (err) {
+        // ns open failed — evict the just-registered entry before failing.
+        try {
+          await this.deps.lifecycle.remove(pluginRunId)
+        } catch {
+          // swallow — original error takes precedence
+        }
+        throw new LoaderError('plugin/storage-open-failed', (err as Error).message)
+      }
+    }
+
+    // (8) Wrap the half so the ctx it receives carries a `pluginStorage`
+    // own property: Object.create keeps the prototype chain (every cordis
+    // member — registry, logger, effect, services — still resolves), and
+    // the own property shadows nothing else. cordis itself is untouched.
+    // Without a storage assembly (no ns opener wired — unit-test hosts,
+    // embedded use), the half loads unwrapped and has no pluginStorage.
+    const nsDomain = entry.storageDomain
+    let wrapped: (ctx: Context, config?: { name?: string }) => unknown
+    if (nsDomain) {
+      wrapped = (ctx: Context, config?: { name?: string }): unknown => {
+        const scoped = Object.create(ctx as object)
+        // Non-enumerable own property: cordis enumerates the plugin's own
+        // keys during fiber registration (inject resolution, hook wiring)
+        // and rejects any key that appears across multiple fibers — keeping
+        // `pluginStorage` hidden from enumeration keeps the per-fiber
+        // handle fully isolated from cordis's bookkeeping while still
+        // visible to the plugin half via property access.
+        Object.defineProperty(scoped, 'pluginStorage', {
+          value: makePluginStorage(nsDomain, id),
+          enumerable: false,
+          writable: false,
+          configurable: false,
+        })
+        return (halfFn as (c: Context, cfg?: { name?: string }) => unknown)(scoped, config)
+      }
+      // Carry the half's own metadata (notably `inject`) onto the wrapper —
+      // cordis reads them off the plugin value to gate activation on
+      // service readiness.
+      Object.assign(wrapped, halfFn)
+    } else {
+      wrapped = halfFn as (ctx: Context, config?: { name?: string }) => unknown
+    }
+    const fiber = this.deps.ctx.registry.plugin(wrapped as never, { name: id } as never) as Fiber
+    ;(entry as { fiber: Fiber }).fiber = fiber
     try {
       // Wait for the plugin to settle (activation or error). `fiber.await()`
       // is a promise; we cast through unknown to avoid TS's recursive

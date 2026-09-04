@@ -1,8 +1,8 @@
 /**
  * Host cordis context. Spec §4.6.
  *
- * Wires the four core services: auditClient, auditStore, plugins,
- * credentials. They are registered as cordis Services with
+ * Wires the core services: auditClient, auditStore, plugins, credentials,
+ * pluginStorage. They are registered as cordis Services with
  * prototype-method dispatch so the cordis caller-tracker can bind
  * `this.ctx` to the calling fiber.
  *
@@ -21,6 +21,9 @@ import type { AuditRingBuffer } from '../client/ring-buffer.js'
 import type { HostAuditClient } from '../client/audit-client.js'
 import type { PluginLoader } from '../plugins/loader.js'
 import type { PluginLifecycle, LifecycleEntry } from '../plugins/lifecycle.js'
+import type { Domain } from '@flowot/nx-pn-storage-domain'
+import type { CredentialsSpec } from '../domains/credentials-domain.js'
+import type { AuditSpec } from '../domains/audit-domain.js'
 import { CordisService, type Context } from './cordis-shim.js'
 
 export interface HostDeps {
@@ -28,6 +31,10 @@ export interface HostDeps {
   client: HostAuditClient
   loader: PluginLoader
   lifecycle: PluginLifecycle
+  /** Open credentials domain (hash → resolved secret). */
+  credentialsDomain: Domain<CredentialsSpec>
+  /** Open durable audit domain (buffer-miss fallback surface). */
+  auditDomain: Domain<AuditSpec>
 }
 
 let currentDeps: HostDeps | null = null
@@ -60,7 +67,7 @@ function requireDeps(): HostDeps {
 function callerInitiator(self: unknown): string | undefined {
   const fiber = (self as { ctx?: { fiber?: { uid?: number | null } } }).ctx?.fiber
   if (!fiber || typeof fiber.uid !== 'number' || fiber.uid <= 0) return undefined
-  const entry = requireDeps().lifecycle.list().find((e) => e.fiber.uid === fiber.uid)
+  const entry = requireDeps().lifecycle.list().find((e) => e.fiber?.uid === fiber.uid)
   return entry?.id
 }
 
@@ -181,15 +188,64 @@ pluginsProto.load = async function (zipBytes: Uint8Array) {
   return { id: r.id, pluginRunId: r.pluginRunId, manifest: r.manifest }
 }
 
+// -------------------------------------------------------------- pluginStorage
+
+/**
+ * Plugin namespace storage service — backs `ctx.pluginStorage` on the HOST
+ * cordis context. It resolves the calling fiber to its lifecycle entry and
+ * hands out a handle over that plugin's OPEN `plugin-<id>` storage domain
+ * (opened by `PluginLifecycle.register`; the loader awaits it before the
+ * fiber activates). A caller with no lifecycle entry (core / built-in) has
+ * no namespace and gets `undefined`.
+ *
+ * Prototype-method dispatch (the cordis caller-tracker binds the calling
+ * fiber, which is how the plugin id is recovered).
+ */
+export interface PluginStorageService {
+  table(tableName: import('./plugin-storage-service.js').PluginTableName): import('./plugin-storage-service.js').PluginNsTable | undefined
+}
+
+export class PluginStorageService extends CordisService {
+  static readonly service = 'pluginStorage'
+  declare table: PluginStorageService['table']
+
+  constructor(ctx: Context) {
+    super(ctx, 'pluginStorage')
+  }
+}
+
+function callerEntry(self: unknown): LifecycleEntry | undefined {
+  const fiber = (self as { ctx?: { fiber?: { uid?: number | null } } }).ctx?.fiber
+  if (!fiber || typeof fiber.uid !== 'number' || fiber.uid <= 0) return undefined
+  return requireDeps().lifecycle.list().find((e) => e.fiber?.uid === fiber.uid)
+}
+
+const pluginStorageProto = PluginStorageService.prototype as unknown as Record<string, unknown>
+pluginStorageProto.table = function (
+  this: unknown,
+  tableName: import('./plugin-storage-service.js').PluginTableName,
+): import('./plugin-storage-service.js').PluginNsTable | undefined {
+  const entry = callerEntry(this)
+  if (!entry?.storageDomain) return undefined
+  const domain = entry.storageDomain as unknown as import('@flowot/nx-pn-storage-domain').Domain<
+    import('@flowot/nx-pn-storage-domain').DomainSpec
+  >
+  const t = domain.table(tableName) as unknown as import('./plugin-storage-service.js').PluginNsTable
+  return t
+}
+
 // --------------------------------------------------------------- credentials
 
 export interface CredentialsService {
   resolve(hash: string): string | undefined
+  /** Persist a resolved credential (internal — future add-credential command). */
+  set(hash: string, secret: string): Promise<void>
 }
 
 export class CredentialsService extends CordisService {
   static readonly service = 'credentials'
   declare resolve: CredentialsService['resolve']
+  declare set: CredentialsService['set']
 
   constructor(ctx: Context) {
     super(ctx, 'credentials')
@@ -197,18 +253,24 @@ export class CredentialsService extends CordisService {
 }
 
 const credentialsProto = CredentialsService.prototype as unknown as Record<string, unknown>
-credentialsProto.resolve = function (_hash: string): string | undefined {
-  // MVP: no persistent credential store. Always returns undefined.
-  return undefined
+credentialsProto.resolve = function (this: unknown, hash: string): string | undefined {
+  // Domain-backed: hash → resolved secret (credentials-domain.ts).
+  const deps = requireDeps()
+  return deps.credentialsDomain.table('resolved').get(hash)
+}
+credentialsProto.set = async function (this: unknown, hash: string, secret: string): Promise<void> {
+  const deps = requireDeps()
+  await deps.credentialsDomain.table('resolved').put(hash, secret)
 }
 
 // ------------------------------------------------------------------- wiring
 
-/** Wire all four core services into a fresh Context. */
+/** Wire the core services into a fresh Context. */
 export function installCoreServices(ctx: Context, deps: HostDeps): void {
   setHostDeps(deps)
   ctx.registry.plugin(AuditClientService, {})
   ctx.registry.plugin(AuditStoreService, {})
   ctx.registry.plugin(PluginsService, {})
   ctx.registry.plugin(CredentialsService, {})
+  ctx.registry.plugin(PluginStorageService, {})
 }

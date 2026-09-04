@@ -13,12 +13,20 @@ import type { AuditRingBuffer } from '../client/ring-buffer.js'
 import type { AuditRecord } from '../client/audit-record.js'
 import type { HostAuditClient } from '../client/audit-client.js'
 import type { MiddlewareContext } from '@flowot/nx-pn-core'
+import type { Domain } from '@flowot/nx-pn-storage-domain'
+import type { AuditSpec } from '../domains/audit-domain.js'
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export interface ReplayRouteDeps {
   ringBuffer: AuditRingBuffer<AuditRecord>
   client: HostAuditClient
+  /**
+   * Durable audit domain — the fallback when the live buffer no longer
+   * holds the requested id (evicted, or from before a restart). Optional
+   * for tests; without it the buffer is the whole ledger.
+   */
+  auditDomain?: Domain<AuditSpec>
 }
 
 const MAX_BODY = 1 * 1024 * 1024
@@ -49,7 +57,21 @@ export async function handleReplayRoute(deps: ReplayRouteDeps, req: IncomingMess
     sendJson(res, 400, { ok: false, error: { code: 'replay/bad-recordId', message: 'recordId required' } })
     return
   }
-  const record = deps.ringBuffer.get(recordId)
+  // Window first; on a miss fall back to the durable audit domain (the
+  // id may predate this process or have been evicted from the buffer).
+  // AuditStoreService.get stays synchronous (buffer-only) — the async
+  // fallback lives here, the one call site that can await.
+  let record = deps.ringBuffer.get(recordId)
+  if (!record && deps.auditDomain) {
+    try {
+      const stored = deps.auditDomain.table('records').get(String(recordId))
+      if (stored !== undefined) {
+        record = { ...(stored as AuditRecord), id: Number(recordId) }
+      }
+    } catch {
+      // closed domain / unreadable record — treat as not found
+    }
+  }
   if (!record) {
     sendJson(res, 404, { ok: false, error: { code: 'replay/record-not-found', message: 'no such record' } })
     return

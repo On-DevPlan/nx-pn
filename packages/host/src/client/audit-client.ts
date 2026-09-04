@@ -32,6 +32,8 @@ export interface HostAuditClientOptions {
   dispatcher?: Dispatcher
   /** Per-request buffer; passed to the audit middleware. */
   buffer: AuditRingBuffer<AuditRecord>
+  /** Optional durable write for every audit record (audit domain put). */
+  persist?: (record: AuditRecord) => Promise<void>
   /** Override the fetch implementation (tests). */
   fetchImpl?: typeof fetch
 }
@@ -67,7 +69,10 @@ export class HostAuditClient {
     }
     this.fetchImpl = opts.fetchImpl ?? (fetch as typeof fetch)
 
-    const auditMw = createAuditMiddleware({ buffer: opts.buffer })
+    const auditMw = createAuditMiddleware({
+      buffer: opts.buffer,
+      ...(opts.persist !== undefined ? { persist: opts.persist } : {}),
+    })
     const middlewares: Middleware<MiddlewareContext, ResEnvelope>[] = [auditMw]
     this.chain = compose(middlewares, (ctx) => this.performFetch(ctx))
   }

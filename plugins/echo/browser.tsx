@@ -20,7 +20,7 @@
  * zip as `browser.js`.
  */
 
-import { useState, type ComponentType } from 'react'
+import { useEffect, useState, type ComponentType } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 /** Structural view of the browser plugin ctx this half relies on. */
@@ -54,6 +54,14 @@ interface BrowserCtx {
       config?: { headers?: Record<string, string> },
     ): Promise<{ status: number; statusText: string; bodyText: string; bytes?: number; headers?: Record<string, string> }>
   }
+  /**
+   * Browser→host tool bridge (v2 storage demo rides this): forwards
+   * `echo/storage.get|put` to the host half's handlers, which read/write
+   * the plugin's OWN durable namespace (`plugin-echo`).
+   */
+  hostCall: {
+    hostCall(event: string, payload?: unknown): Promise<unknown>
+  }
   /** Host event bus — fire `echo/ping` to trigger the host tool endpoint. */
   emit(event: string, payload?: unknown): unknown
   /** Pages service (spec §5.3, prototype methods). */
@@ -86,7 +94,51 @@ const browserHalf = function browserHalf(ctx: BrowserCtx, config?: { name?: stri
     const [result, setResult] = useState<string | null>(null)
     const [status, setStatus] = useState<number | null>(null)
     const [busy, setBusy] = useState(false)
+    const [nsBootCount, setNsBootCount] = useState<number | null>(null)
+    const [nsNote, setNsNote] = useState<string | null>(null)
     const navigate = useNavigate()
+
+    // Namespace-storage demo (v2): read the durable bootCount from this
+    // plugin's own `plugin-echo` namespace once on mount. The value
+    // survives host restarts and plugin re-installs.
+    useEffect(() => {
+      let cancelled = false
+      void ctx.hostCall
+        .hostCall('echo/storage.get', { table: 'settings', key: 'bootCount' })
+        .then((res) => {
+          if (cancelled) return
+          const r = res as { ok?: boolean; data?: unknown; error?: string }
+          if (r?.ok) setNsBootCount(typeof r.data === 'number' ? r.data : 0)
+          else setNsNote(r?.error ?? '读取失败')
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) setNsNote((err as Error).message)
+        })
+      return () => {
+        cancelled = true
+      }
+    }, [])
+
+    // Namespace-storage demo: write a random marker into `cache`, read it
+    // back — proving the browser → host tool bridge → plugin ns loop.
+    const onNsWrite = async (): Promise<void> => {
+      setNsNote(null)
+      const marker = `marker-${Date.now()}`
+      try {
+        const res = (await ctx.hostCall.hostCall('echo/storage.put', {
+          table: 'cache',
+          key: 'lastMarker',
+          value: marker,
+        })) as { ok?: boolean; data?: unknown; error?: string }
+        if (!res?.ok) {
+          setNsNote(res?.error ?? '写入失败')
+          return
+        }
+        setNsNote(`已写入并回读 cache.lastMarker = ${String(res.data)}`)
+      } catch (err) {
+        setNsNote((err as Error).message)
+      }
+    }
 
     const onSend = async (): Promise<void> => {
       setBusy(true)
@@ -169,6 +221,22 @@ const browserHalf = function browserHalf(ctx: BrowserCtx, config?: { name?: stri
           </div>
         </section>
 
+        <section className="card">
+          <h2>命名空间存储（v2 演示）</h2>
+          <div className="muted">
+            本插件拥有独立的持久化命名空间 <code>plugin-{id}</code>（settings / cache / state 三张表，存储于 host 数据目录）。
+            数据跨重启、跨重装保留。
+          </div>
+          <p>
+            启动计数 <code>settings.bootCount</code>：
+            <strong>{nsBootCount !== null ? ` ${nsBootCount}` : ' …'}</strong>
+            {nsNote ? <span> （{nsNote}）</span> : null}
+          </p>
+          <div className="form-actions">
+            <button onClick={onNsWrite}>写入 cache.lastMarker 并回读</button>
+          </div>
+        </section>
+
         {result && (
           <section className="card">
             <h2>响应{status !== null ? ` (${status})` : ''}</h2>
@@ -189,6 +257,6 @@ const browserHalf = function browserHalf(ctx: BrowserCtx, config?: { name?: stri
 }
 
 // cordis reads `inject` off the plugin value; declare our service needs.
-;(browserHalf as typeof browserHalf & { inject?: string[] }).inject = ['pages', 'auditClient']
+;(browserHalf as typeof browserHalf & { inject?: string[] }).inject = ['pages', 'auditClient', 'hostCall']
 
 export default browserHalf

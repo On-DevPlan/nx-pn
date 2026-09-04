@@ -11,8 +11,8 @@
  *     → locate package.json → build core Manifest → validateManifest
  *     → import(hostEntry) → ctx.registry.plugin(fn, { name: id })
  *     → await fiber.await() → lifecycle.register { id, pluginRunId, fiber }
- *     → record the spec in plugins-registry/installed.json so a host
- *       restart can replay it (parity with data-dir/plugins/*.zip)
+ *     → record the spec in the plugins STORAGE DOMAIN ledger (plugins-domain)
+ *       so a host restart can replay it (parity with data-dir/plugins/*.zip)
  *
  * Zip dual-half upload stays as the secondary channel (loader.ts); this
  * module is the new standard path. Attribution works the same way: the
@@ -22,17 +22,18 @@
 
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { MANIFEST_VERSION, validateManifest, type Manifest } from '@flowot/nx-pn-core'
 import type { Context, Fiber } from '../cordis/cordis-shim.js'
 import type { PluginLifecycle } from './lifecycle.js'
+import { PLUGINS_LEDGER_TABLE, pluginsSpec, type PluginsLedgerEntry } from '../domains/plugins-domain.js'
+import type { Domain } from '@flowot/nx-pn-storage-domain'
+import { makePluginStorage } from '../cordis/plugin-storage-service.js'
 
-/** Sub-directory of dataDir holding the npm registry prefix + ledger. */
+/** Sub-directory of dataDir holding the npm registry prefix. */
 export const PLUGINS_REGISTRY_DIR = 'plugins-registry'
-/** Ledger file mapping manifest id → install spec (restart replay). */
-const INSTALLED_JSON = 'installed.json'
 
 export interface NpmInstallPluginOptions {
   /** npm spec: "name", "name@ver", "@scope/name", or a file:/folder path. */
@@ -43,6 +44,8 @@ export interface NpmInstallPluginOptions {
   ctx: Context
   /** Lifecycle registry the loaded fiber gets registered into. */
   lifecycle: PluginLifecycle
+  /** Open plugins-ledger domain (npm install-by-name ledger → storage). */
+  pluginsDomain: Domain<typeof pluginsSpec>
 }
 
 export interface NpmInstallResult {
@@ -68,6 +71,7 @@ export interface NpmInstallResult {
   replaced: string[]
 }
 
+/** A single npm-ledger row (mirrors the plugins-domain entry). */
 export interface LedgerEntry {
   spec: string
   name: string
@@ -159,17 +163,57 @@ export async function npmInstallPlugin(opts: NpmInstallPluginOptions): Promise<N
     await opts.lifecycle.remove(existing.pluginRunId)
   }
 
-  // (6) Load into cordis (register BEFORE awaiting, like loader.ts) so the
-  // plugin is attributable from its first apply-time auditClient call.
-  const fiber = opts.ctx.registry.plugin(halfFn as never, { name: id } as never) as Fiber
+  // (6) Load into cordis. Mirrors loader.ts exactly: register the entry
+  // first (kicks off the `plugin-<id>` ns domain open), await the open
+  // (fail-loud), then activate a WRAPPED half that injects
+  // `ctx.pluginStorage` over the open domain, and back-fill the fiber onto
+  // the entry — the plugin is attributable from its first apply-time
+  // auditClient call (callerInitiator matches by fiber uid).
   const pluginRunId = opts.lifecycle.nextRunId()
-  opts.lifecycle.register({
+  const entry: import('./lifecycle.js').LifecycleEntry = {
     id,
     pluginRunId,
-    fiber,
     manifest,
     ...(browserSource !== undefined ? { browserSource } : {}),
-  })
+  }
+  opts.lifecycle.register(entry)
+  if (entry.storagePromise) {
+    try {
+      await entry.storagePromise
+    } catch (err) {
+      try {
+        await opts.lifecycle.remove(pluginRunId)
+      } catch {
+        // swallow — original error takes precedence
+      }
+      throw new InstallerError('plugin/storage-open-failed', (err as Error).message)
+    }
+  }
+  const nsDomain = entry.storageDomain
+  let wrapped: (ctx: Context, config?: { name?: string }) => unknown
+  if (nsDomain) {
+    wrapped = (ctx: Context, config?: { name?: string }): unknown => {
+      const scoped = Object.create(ctx as object)
+      // Non-enumerable own property: cordis enumerates the plugin's own
+      // keys during fiber registration and rejects any key that appears
+      // across multiple fibers (see loader.ts for the full rationale).
+      Object.defineProperty(scoped, 'pluginStorage', {
+        value: makePluginStorage(nsDomain, id),
+        enumerable: false,
+        writable: false,
+        configurable: false,
+      })
+      return (halfFn as (c: Context, cfg?: { name?: string }) => unknown)(scoped, config)
+    }
+    // Carry the half's own metadata (notably `inject`) onto the wrapper —
+    // cordis reads them off the plugin value to gate activation on
+    // service readiness.
+    Object.assign(wrapped, halfFn)
+  } else {
+    wrapped = halfFn as (ctx: Context, config?: { name?: string }) => unknown
+  }
+  const fiber = opts.ctx.registry.plugin(wrapped as never, { name: id } as never) as Fiber
+  ;(entry as { fiber: Fiber }).fiber = fiber
   try {
     await (fiber.await as unknown as () => Promise<void>)()
   } catch (err) {
@@ -181,10 +225,14 @@ export async function npmInstallPlugin(opts: NpmInstallPluginOptions): Promise<N
     throw new InstallerError('plugin/runtime-error', (err as Error).message)
   }
 
-  // (7) Record the successful install for restart replay.
-  const ledger = await readLedger(registryDir)
+  // (7) Record the successful install for restart replay — the ledger now
+  // lives in the plugins storage domain (plugins-domain.ts). The installer
+  // no longer reads/writes data-dir/plugins-registry/installed.json: a
+  // pre-existing file from a file-ledger host is NOT migrated (v1 design
+  // decision) and is left untouched on disk.
+  const ledger = await readLedger(opts)
   ledger[id] = { spec, name, version: manifest.version, installedAt: new Date().toISOString() }
-  await writeLedger(registryDir, ledger)
+  await writeLedger(opts, ledger)
 
   return {
     id,
@@ -208,12 +256,13 @@ export async function restartNpmPlugins(opts: {
   dataDir: string
   ctx: Context
   lifecycle: PluginLifecycle
+  pluginsDomain: Domain<typeof pluginsSpec>
 }): Promise<NpmInstallResult[]> {
-  const ledger = await readLedger(join(opts.dataDir, PLUGINS_REGISTRY_DIR))
+  const ledger = await readLedger(opts)
   const results: NpmInstallResult[] = []
   for (const entry of Object.values(ledger)) {
     try {
-      results.push(await npmInstallPlugin({ spec: entry.spec, dataDir: opts.dataDir, ctx: opts.ctx, lifecycle: opts.lifecycle }))
+      results.push(await npmInstallPlugin({ spec: entry.spec, dataDir: opts.dataDir, ctx: opts.ctx, lifecycle: opts.lifecycle, pluginsDomain: opts.pluginsDomain }))
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn(`[plugin-installer] restart failed for ${entry.name}:`, (err as Error).message)
@@ -223,12 +272,11 @@ export async function restartNpmPlugins(opts: {
 }
 
 /** Drop a plugin from the install ledger (idempotent; zip plugins absent). */
-export async function uninstallNpmPlugin(opts: { id: string; dataDir: string }): Promise<void> {
-  const registryDir = join(opts.dataDir, PLUGINS_REGISTRY_DIR)
-  const ledger = await readLedger(registryDir)
+export async function uninstallNpmPlugin(opts: { id: string; dataDir: string; pluginsDomain: Domain<typeof pluginsSpec> }): Promise<void> {
+  const ledger = await readLedger(opts)
   if (!(opts.id in ledger)) return
   delete ledger[opts.id]
-  await writeLedger(registryDir, ledger)
+  await writeLedger(opts, ledger)
 }
 
 // ------------------------------------------------------------------ details
@@ -357,17 +405,41 @@ function bareName(spec: string): string | null {
 
 // ------------------------------------------------------------- ledger helpers
 
-async function readLedger(registryDir: string): Promise<Record<string, LedgerEntry>> {
-  try {
-    const text = await readFile(join(registryDir, INSTALLED_JSON), 'utf-8')
-    const parsed = JSON.parse(text) as unknown
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, LedgerEntry>) : {}
-  } catch {
-    return {}
+/**
+ * Read the ledger as a plain `Record<id, LedgerEntry>` from the plugins
+ * storage domain's `installed` table. The old file-backed ledger
+ * (installed.json) is no longer consulted.
+ */
+async function readLedger(opts: { pluginsDomain: Domain<typeof pluginsSpec> }): Promise<Record<string, PluginsLedgerEntry>> {
+  const table = opts.pluginsDomain.table(PLUGINS_LEDGER_TABLE)
+  const out: Record<string, PluginsLedgerEntry> = {}
+  for (const [key, value] of table.entries()) {
+    out[key] = value as PluginsLedgerEntry
   }
+  return out
 }
 
-async function writeLedger(registryDir: string, ledger: Record<string, LedgerEntry>): Promise<void> {
-  await mkdir(registryDir, { recursive: true })
-  await writeFile(join(registryDir, INSTALLED_JSON), JSON.stringify(ledger, null, 2), 'utf-8')
+/** Write the whole ledger back into the plugins storage domain. */
+async function writeLedger(opts: { pluginsDomain: Domain<typeof pluginsSpec> }, ledger: Record<string, PluginsLedgerEntry>): Promise<void> {
+  const table = opts.pluginsDomain.table(PLUGINS_LEDGER_TABLE)
+  // Upsert the provided rows, removing any row absent from the new map
+  // (a full replacement keeps the domain's state equal to the caller's).
+  const next = new Map<string, PluginsLedgerEntry>()
+  for (const [id, entry] of Object.entries(ledger)) next.set(id, entry)
+  const seen = new Set<string>()
+  for (const [key] of table.entries()) {
+    if (next.has(key)) {
+      seen.add(key)
+      const entry = next.get(key)!
+      if (JSON.stringify(table.get(key)) !== JSON.stringify(entry)) {
+        await table.put(key, entry)
+      }
+    } else {
+      await table.delete(key)
+    }
+  }
+  for (const [id, entry] of next) {
+    if (seen.has(id)) continue
+    await table.put(id, entry)
+  }
 }

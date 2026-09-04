@@ -13,21 +13,42 @@
  * browsers dispose the matching browser-half fiber + drop the entries from
  * their PageRegistry. Loading / installing a new run of the same id is
  * therefore guaranteed to leave at most one active entry per manifest id.
+ *
+ * Namespace storage (v2): every entry owns a `plugin-<id>` storage domain
+ * opened on `register` (an async open kicked off synchronously — the caller
+ * awaits `entry.storagePromise` before activating the fiber). `remove` /
+ * `stopAll` close that domain AFTER the fiber disposes, so a plugin cannot
+ * write past its own teardown while its durable data survives re-installs.
  */
 
 import type { Fiber } from '../cordis/cordis-shim.js'
 import type { BrowserHalfPusher } from '../ws/browser-half-pusher.js'
+import type { Domain } from '@flowot/nx-pn-storage-domain'
 
 export interface LifecycleEntry {
   id: string
   pluginRunId: string
-  fiber: Fiber
+  /**
+   * The plugin's cordis fiber. Back-filled by the loader / installer
+   * AFTER `registry.plugin(...)` returns — the entry is registered (and
+   * its namespace storage domain opened) BEFORE the fiber exists, so
+   * apply-time `ctx.pluginStorage` is always backed by an open domain.
+   */
+  fiber?: Fiber
   /** Absolute path to the loaded .zip, if known. */
   zipPath?: string
   /** Compiled browser-half ESM source (if the manifest declares one). */
   browserSource?: string
   /** Manifest snapshot for list endpoints. */
   manifest: import('@flowot/nx-pn-core').Manifest
+  /**
+   * Namespace storage (v2): resolves when the `plugin-<id>` storage domain
+   * is open. Set by `register`; the loader / installer awaits it before
+   * activating the fiber, so apply-time `ctx.pluginStorage` is live.
+   */
+  storagePromise?: Promise<Domain<import('@flowot/nx-pn-storage-domain').DomainSpec>>
+  /** The opened namespace domain (back-filled when storagePromise resolves). */
+  storageDomain?: Domain<import('@flowot/nx-pn-storage-domain').DomainSpec>
 }
 
 export class PluginLifecycle {
@@ -42,6 +63,14 @@ export class PluginLifecycle {
    * lifecycle.ts free of WS types in tests).
    */
   private browserHalfPusher: BrowserHalfPusher | undefined
+  /**
+   * Namespace-storage opener injected by startHost after the storage
+   * facility is assembled. `register` calls it synchronously so the
+   * returned promise is captured on the entry before any await point.
+   */
+  private openPluginNs:
+    | ((id: string) => Promise<Domain<import('@flowot/nx-pn-storage-domain').DomainSpec>>)
+    | undefined
 
   /** Allocate the next pluginRunId (monotonic). */
   nextRunId(): string {
@@ -58,8 +87,30 @@ export class PluginLifecycle {
     this.browserHalfPusher = pusher
   }
 
-  /** Register a freshly-loaded plugin. */
+  /**
+   * Inject the namespace-storage opener. Once set, every `register` opens a
+   * `plugin-<id>` storage domain for the entry (the load awaits it before
+   * activating the fiber). Re-setting replaces the prior opener.
+   */
+  setPluginNsOpener(
+    opener: (id: string) => Promise<Domain<import('@flowot/nx-pn-storage-domain').DomainSpec>>,
+  ): void {
+    this.openPluginNs = opener
+  }
+
+  /** Register a freshly-loaded plugin. Opens the namespace domain (async). */
   register(entry: LifecycleEntry): void {
+    if (this.openPluginNs) {
+      const opened = this.openPluginNs(entry.id)
+      // Back-fill the resolved domain onto the same entry object the
+      // loader / installer already holds, so by the time they await the
+      // promise the domain is reachable on the entry too.
+      const promise = opened.then((domain) => {
+        entry.storageDomain = domain
+        return domain
+      })
+      entry.storagePromise = promise
+    }
     this.entries.set(entry.pluginRunId, entry)
   }
 
@@ -91,7 +142,7 @@ export class PluginLifecycle {
     const entry = this.entries.get(pluginRunId)
     if (!entry) return
     try {
-      await entry.fiber.dispose()
+      await entry.fiber?.dispose()
     } catch {
       // swallow; disposal errors shouldn't bubble
     }
@@ -102,11 +153,33 @@ export class PluginLifecycle {
    * connected browsers (if a pusher is wired) carrying both the run id
    * and the manifest id, so the browser side can match and unregister
    * pages even when a re-upload swapped the pluginRunId for the same id.
+   *
+   * The namespace storage domain (v2) closes AFTER the fiber is disposed
+   * — a stopped plugin can no longer write, and in-flight durable writes
+   * drain before the domain releases its unit. Data persists (re-install
+   * regains the same records).
    */
   async remove(pluginRunId: string): Promise<void> {
     const entry = this.entries.get(pluginRunId)
     const id = entry?.id
+    const storageDomain = entry?.storageDomain
+    const storagePromise = entry?.storagePromise
     await this.stop(pluginRunId)
+    if (storageDomain) {
+      try {
+        await storageDomain.close()
+      } catch {
+        // swallow — a failing close must not block the retract/eviction
+      }
+    } else if (storagePromise) {
+      // The ns open was still in flight when this remove landed (a race
+      // with a concurrent load): close the domain as soon as it opens so
+      // no orphan stays registered on the facility.
+      storagePromise.then(
+        (domain) => { void domain.close().catch(() => {}) },
+        () => { /* open failed — nothing to close */ },
+      )
+    }
     if (this.browserHalfPusher) {
       // Best-effort broadcast — never throws. Browser half retract is
       // idempotent on the client side; an entry without a browser half
@@ -122,6 +195,19 @@ export class PluginLifecycle {
     const all = [...this.entries.values()]
     for (const e of all) {
       await this.stop(e.pluginRunId)
+    }
+    // Namespace domains close after every fiber is disposed (plugins can
+    // no longer write). Domains left open here are also reclaimed by the
+    // storage facility's closeAll at host stop — double close is
+    // idempotent, so this is belt-and-braces.
+    for (const e of all) {
+      if (e.storageDomain) {
+        try {
+          await e.storageDomain.close()
+        } catch {
+          // swallow
+        }
+      }
     }
   }
 }

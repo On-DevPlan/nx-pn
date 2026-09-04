@@ -24,7 +24,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer, type Server } from 'node:http'
 import { startHost, type StartedHost } from '../index.js'
-import { npmInstallPlugin, PLUGINS_REGISTRY_DIR } from '../plugins/installer.js'
+import { npmInstallPlugin } from '../plugins/installer.js'
 
 const handles: StartedHost[] = []
 const upstreams: Server[] = []
@@ -132,7 +132,7 @@ describe('install-by-name e2e — npm package plugin (npx-plugin path)', () => {
     const spec = `file:${pluginDir.replace(/\\/g, '/')}`
 
     // ── 1. install by name (offline file: spec) ────────────────────────
-    const first = await npmInstallPlugin({ spec, dataDir, ctx: host.ctx, lifecycle: host.lifecycle })
+    const first = await npmInstallPlugin({ spec, dataDir, ctx: host.ctx, lifecycle: host.lifecycle, pluginsDomain: host.pluginsDomain })
     expect(first.id).toBe('my-audit-plugin')
     expect(first.version).toBe('1.2.3')
     expect(first.name).toBe('my-audit-plugin')
@@ -158,9 +158,14 @@ describe('install-by-name e2e — npm package plugin (npx-plugin path)', () => {
     expect(record.resBody.json).toEqual({ echoed: '/demo?proof=1', via: 'install-by-name-e2e' })
 
     // ── 3. the npm ledger recorded the install (restart replay source) ──
-    const ledgerPath = join(dataDir, PLUGINS_REGISTRY_DIR, 'installed.json')
-    const ledger = JSON.parse(await readFile(ledgerPath, 'utf-8'))
-    expect(ledger['my-audit-plugin']).toMatchObject({ spec, name: 'my-audit-plugin', version: '1.2.3' })
+    // The ledger now lives in the plugins storage domain (single-layout
+    // json unit at <dataDir>/storage/plugins.json).
+    const ledgerFile = JSON.parse(await readFile(join(dataDir, 'storage', 'plugins.json'), 'utf-8')) as {
+      unit: unknown
+      tables: { installed?: Record<string, { spec: string; name: string; version: string }> }
+    }
+    expect(ledgerFile.tables.installed?.['my-audit-plugin']).toMatchObject({ spec, name: 'my-audit-plugin', version: '1.2.3' })
+    expect(host.pluginsDomain.table('installed').get('my-audit-plugin')).toMatchObject({ spec })
 
     // ── 4. lifecycle.remove → registry empty (ledger untouched) ────────
     await host.lifecycle.remove(first.pluginRunId)
@@ -168,7 +173,7 @@ describe('install-by-name e2e — npm package plugin (npx-plugin path)', () => {
     expect(host.lifecycle.list()).toHaveLength(0)
 
     // ── 5. re-install → fresh run id, tool works again ─────────────────
-    const second = await npmInstallPlugin({ spec, dataDir, ctx: host.ctx, lifecycle: host.lifecycle })
+    const second = await npmInstallPlugin({ spec, dataDir, ctx: host.ctx, lifecycle: host.lifecycle, pluginsDomain: host.pluginsDomain })
     expect(second.pluginRunId).not.toBe(first.pluginRunId)
     expect(host.lifecycle.list()).toHaveLength(1)
 
@@ -209,8 +214,7 @@ describe('install-by-name e2e — npm package plugin (npx-plugin path)', () => {
     )
     expect(uninstallRes.status).toBe(200)
     expect(host2.lifecycle.list()).toHaveLength(0)
-    const ledgerAfter = JSON.parse(await readFile(ledgerPath, 'utf-8'))
-    expect(ledgerAfter['my-audit-plugin']).toBeUndefined()
+    expect(host2.pluginsDomain.table('installed').get('my-audit-plugin')).toBeUndefined()
 
     // ── 8. install over REST (web UI path) → 201 + live in lifecycle ───
     const installRes = await fetch(`http://127.0.0.1:${host2.port}/api/plugins/install`, {

@@ -22,17 +22,51 @@ export class AuditRingBuffer<T extends { id: number }> {
     this.onPush = opts.onPush
   }
 
-  /** Push a record; assigns the next monotonic id (records always get a fresh id). */
+  /**
+   * Push a record. The record is inserted with its own id when one was
+   * already assigned (the durable audit path allocates via {@link nextId}
+   * and persists BEFORE pushing); otherwise the next monotonic id is
+   * assigned here.
+   */
   push(record: T): T {
-    // Records carry an `id` slot that the caller leaves at 0 / undefined;
-    // the ring assigns the monotonic id. We always override.
-    (record as { id: number }).id = this.nextId()
+    const id = (record as { id: number }).id
+    if (typeof id !== 'number' || id === 0) {
+      (record as { id: number }).id = this.nextId()
+    }
     this.entries.push(record)
     while (this.entries.length > this.capacity) {
       this.entries.shift()
     }
     this.onPush?.(record)
     return record
+  }
+
+  /**
+   * Assign the next monotonic id WITHOUT inserting into the live ring
+   * buffer. The durable audit path calls this first, persists the record
+   * under `String(id)`, then `push`es — push preserves the already-assigned
+   * id so the live buffer and the durable trail stay aligned.
+   */
+  nextId(): number {
+    return this.lastId + 1
+  }
+
+  /**
+   * Rebuild the live ring buffer from durable history (host restart
+   * replay). Clears the buffer and inserts every record in order WITHOUT
+   * invoking onPush — rebuilds never re-broadcast history over WS. Ids
+   * are preserved as given, so a domain-reloaded trail maps 1:1 to the
+   * same ids it had before the restart.
+   */
+  rebuild(records: readonly T[]): void {
+    this.entries.length = 0
+    const sorted = [...records].sort((a, b) => a.id - b.id)
+    for (const record of sorted) {
+      this.entries.push(record)
+    }
+    while (this.entries.length > this.capacity) {
+      this.entries.shift()
+    }
   }
 
   /** Snapshot copy (oldest → newest). */
@@ -55,7 +89,7 @@ export class AuditRingBuffer<T extends { id: number }> {
     return this.entries.length
   }
 
-  /** Largest assigned id, or 0 if empty. */
+  /** Largest id in the live ring buffer, or 0 if empty. */
   get lastId(): number {
     return this.entries.length === 0
       ? 0
@@ -65,9 +99,5 @@ export class AuditRingBuffer<T extends { id: number }> {
   /** Drop everything. */
   clear(): void {
     this.entries.length = 0
-  }
-
-  private nextId(): number {
-    return this.lastId + 1
   }
 }

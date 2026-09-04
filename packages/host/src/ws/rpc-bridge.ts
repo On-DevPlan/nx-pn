@@ -28,6 +28,10 @@ export type RpcOp =
   | 'tool.invoke'
   | 'browser-half.load'
   | 'browser-half.retract'
+  | 'plugin-storage.get'
+  | 'plugin-storage.put'
+  | 'plugin-storage.delete'
+  | 'plugin-storage.keys'
   | 'error'
 
 export const RPC_DEFAULT_TIMEOUT_MS = 30_000
