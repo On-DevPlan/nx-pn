@@ -119,13 +119,43 @@ curl -F "zip=@dist/devctr-kv.zip" http://localhost:4560/api/plugins
 - 返回壳 → `/audit` with the shell sidebar restored
 - echo / example-api flat pages unchanged (sidebar intact)
 
-## Known wire limitation
+## Browser→host tool-event bridge (DONE)
 
-`ctx.emit` in a BROWSER half dispatches LOCALLY in the browser cordis
-context — the WS bridge exposes only the audit `rpc.invoke` op, so host-half
-`ctx.on('devctr-kv/*')` handlers are NOT reachable from browser views yet
-(echo declares `emit` but never calls it). devctr-kv's `call()` helper
-detects the unmatched emit (`undefined`) and returns a structured error
-instead of crashing; its real data path is the direct `ctx.auditClient`
-calls, which DO round-trip through `rpc.invoke`. Adding a tool-event RPC op
-(the browser→host `ctx.emit` bridge) is documented future work.
+Plugin browser halves call their **host half's event handlers** over the WS
+RPC via the cordis service convention:
+
+```tsx
+// browser half — registered on the browser cordis context via
+// `inject: ['pages', 'auditClient', 'hostCall']`
+async function call(action: string, payload: Record<string, unknown>) {
+  const r = await ctx.hostCall.hostCall(`<plugin>/${action}`, payload)
+  // r is the host half's ApiResult ({ ok, data?, error?, status? })
+}
+```
+
+The host half registers handlers with cordis's standard `ctx.on`:
+
+```ts
+// host half — registered on the HOST cordis context
+function reg(action: string, handler: (p: Record<string, unknown>) => Promise<ApiResult>) {
+  ctx.on(`<plugin>/${action}`, (payload) => handler(payload ?? {}).catch(...))
+}
+reg('login', async (p) => {
+  const res = await ctx.auditClient.post('https://api.example/login', JSON.stringify(p), { headers: authHeaders() })
+  // ...store JWT, return ApiResult...
+  return { ok: true, data: { token } }
+})
+```
+
+Wire shape (spec §4.5.1): browser sends a `tool.invoke` frame
+`{ event, payload, pluginRunId }`; host dispatches on its cordis context
+with the result-returning `serial` mode and replies with the handler's
+ApiResult wrapped in `{ ok, data }`. `pluginRunId` is logging-only
+attribution (never a hard fail). No-listener replies are a structured
+`{ ok: false, error: 'no handler for <event>' }`; unexpected handler
+faults are an rpc-level `{ ok: false, error: { code: 'rpc/tool-error' } }`.
+
+**Important** — the call shape is `ctx.hostCall.hostCall(event, payload)`,
+NOT `ctx.hostCall(event, payload)`. Cordis services expose methods on the
+the prototype (matching `ctx.auditClient.get(url)` and `ctx.pages.register(entry)`);
+the traceable returns the service instance, not a flat callable.

@@ -117,7 +117,11 @@ export default (ctx, config) => {
   // ctx.pages.register({ pluginId, path, title, order?, icon?, Component })
   //   → adds a sidebar entry + route
   // ctx.auditClient.get/post/put/patch/delete → proxied to host over WS RPC
-  // ctx.emit(event, payload) → fire a host event
+  // ctx.hostCall.hostCall(event, payload?) → invokes a host-half event
+  //   handler (`<plugin>/<action>`, registered via ctx.on on the HOST
+  //   context) over a `tool.invoke` WS round-trip. Resolves with the
+  //   handler's ApiResult; structured errors (no handler, backend
+  //   failure) survive the pending table verbatim.
   // ctx.logger.info/warn/error
 
   const Page = () => {
