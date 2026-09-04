@@ -51,4 +51,37 @@ describe('PageRegistry', () => {
     reg.unregister('p', '/missing') // no-op → no notify
     expect(seen).toEqual(['tick', 'tick'])
   })
+
+  it('stores layout + routes as opaque data (fullscreen contract)', () => {
+    const reg = new PageRegistry()
+    const Dashboard = function Dashboard() {}
+    const KeysView = function KeysView() {}
+    reg.register({
+      pluginId: 'p',
+      path: '/p',
+      title: 'P',
+      layout: 'fullscreen',
+      routes: [
+        { path: '/', Component: Dashboard },
+        { path: '/keys', Component: KeysView },
+      ],
+      Component: Dashboard,
+    })
+    const snap = reg.snapshot()
+    expect(snap).toHaveLength(1)
+    expect(snap[0]?.layout).toBe('fullscreen')
+    expect(snap[0]?.routes).toHaveLength(2)
+    expect(snap[0]?.routes?.[1]).toEqual({ path: '/keys', Component: KeysView })
+    // upsert flows the new shape through too
+    reg.register({ pluginId: 'p', path: '/p', title: 'P2' })
+    expect(reg.snapshot()[0]?.layout).toBeUndefined()
+    expect(reg.snapshot()[0]?.routes).toBeUndefined()
+  })
+
+  it('default registrations stay shell layout (flat-page contract intact)', () => {
+    const reg = new PageRegistry()
+    reg.register({ pluginId: 'p', path: '/x', title: 'X', Component: function X() {} })
+    expect(reg.snapshot()[0]?.layout).toBeUndefined()
+    expect(reg.snapshot()[0]?.routes).toBeUndefined()
+  })
 })

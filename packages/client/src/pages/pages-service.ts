@@ -17,10 +17,10 @@
  */
 
 import { CordisService } from '../cordis/cordis-shim.js'
-import { PageRegistry, type PageRegistration } from './page-registry.js'
+import { PageRegistry, type PageRegistration, type PageRouteEntry } from './page-registry.js'
 
 export type PageDisposer = () => void
-export type { PageRegistration } from './page-registry.js'
+export type { PageRegistration, PageRouteEntry } from './page-registry.js'
 export { PageRegistry } from './page-registry.js'
 
 /** Named method signatures so no source line matches the spec-review

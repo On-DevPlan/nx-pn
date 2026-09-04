@@ -338,6 +338,7 @@ function defaultWsUrl(): string {
 }
 
 export { Pages, type PageRegistration } from './pages/pages-service.js'
+export type { PageRouteEntry } from './pages/page-registry.js'
 export { PageRegistry } from './pages/page-registry.js'
 export { WsTransport, ReconnectController } from './rpc/connection.js'
 export { RpcClient, RpcError } from './rpc/rpc-client.js'
