@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { PluginSummary } from '@flowot/nx-pn-client'
-import { fetchPluginList, stopPlugin, removePlugin, uploadPlugin, installPluginByName, ApiError } from '@flowot/nx-pn-client'
+import type { PluginSummary, BrowserRuntimeHandle } from '@flowot/nx-pn-client'
+import { fetchPluginList, stopPlugin, removePlugin, uploadPlugin, installPluginByName, startPlugin, ApiError } from '@flowot/nx-pn-client'
 
-type PluginState = 'running' | 'stopping' | 'removing' | 'error'
+type PluginState = 'running' | 'stopped' | 'stopping' | 'starting' | 'removing' | 'error'
 
 interface PluginRow extends PluginSummary {
+  /** undefined = unknown (no live snapshot yet); true = ACTIVE; false = STOPPED/DISPOSED. */
+  active?: boolean
   localState: PluginState
   message?: string
 }
@@ -16,12 +18,14 @@ interface PluginRowState {
 
 const PLUGIN_STATE_TEXT: Record<PluginState, string> = {
   running: '运行中',
+  stopped: '已停止',
   stopping: '停止中…',
+  starting: '启动中…',
   removing: '移除中…',
   error: '错误',
 }
 
-export function PluginsPage() {
+export function PluginsPage({ runtime: _runtime }: { runtime: BrowserRuntimeHandle | null }) {
   const [plugins, setPlugins] = useState<PluginRow[]>([])
   const [spec, setSpec] = useState('')
   const [installing, setInstalling] = useState(false)
@@ -37,12 +41,16 @@ export function PluginsPage() {
       setPlugins((prev) =>
         list.map((p): PluginRow => {
           const old = prev.find((x) => x.pluginRunId === p.pluginRunId)
-          if (!old) return { ...p, localState: 'running' }
-          const row: PluginRow = { ...p, localState: old.localState }
-          if (old.message !== undefined) row.message = old.message
+          const row: PluginRow = { ...p, localState: old?.localState ?? 'running' }
+          row.active = true
+          // 启动/停止/移除动作完成 → 回落到稳态.
+          if (row.localState === 'stopping') row.localState = 'stopped'
+          if (row.localState === 'starting') row.localState = 'running'
+          if (old?.message !== undefined && row.localState === old.localState) row.message = old.message
           return row
         }),
       )
+      setError(null)
     } catch (err) {
       setError((err as Error).message)
     }
@@ -99,9 +107,22 @@ export function PluginsPage() {
     patch(row.pluginRunId, { localState: 'stopping' })
     try {
       await stopPlugin('', row.pluginRunId)
-      patch(row.pluginRunId, { localState: 'error', message: '已停止' })
+      patch(row.pluginRunId, { localState: 'stopped', active: false })
     } catch (err) {
       patch(row.pluginRunId, { localState: 'error', message: (err as Error).message })
+    }
+  }
+
+  async function onStart(row: PluginRow): Promise<void> {
+    patch(row.pluginRunId, { localState: 'starting' })
+    try {
+      const r = await startPlugin('', row.pluginRunId)
+      patch(row.pluginRunId, { localState: 'running', active: true })
+      // 启动会 mint 一个新的 pluginRunId → 用返回值刷新该行 ID 字段.
+      setPlugins((prev) => prev.map((p) => (p.pluginRunId === row.pluginRunId ? { ...p, pluginRunId: r.pluginRunId } : p)))
+    } catch (err) {
+      const msg = err instanceof ApiError ? `${err.code}: ${err.message}` : (err as Error).message
+      patch(row.pluginRunId, { localState: 'stopped', message: msg })
     }
   }
 
@@ -116,7 +137,7 @@ export function PluginsPage() {
   }
 
   return (
-    <div className="page">
+    <div className="page bw">
       <h1>插件管理</h1>
       {error && <div className="error-line">{error}</div>}
 
@@ -172,23 +193,33 @@ export function PluginsPage() {
                 <td>{p.manifest.version}</td>
                 <td>{p.manifest.title}</td>
                 <td>
-                  <span className={`status ${p.localState === 'running' ? 'ok' : 'warn'}`}>
+                  <span className={`status ${p.localState === 'running' ? 'ok' : p.localState === 'stopped' ? 'err' : 'warn'}`}>
                     {PLUGIN_STATE_TEXT[p.localState]}
                   </span>
                   {p.message && <div className="muted">{p.message}</div>}
                 </td>
                 <td className="mono">{p.pluginRunId}</td>
                 <td className="actions">
-                  <button
-                    className="ghost"
-                    disabled={p.localState === 'stopping' || p.localState === 'removing'}
-                    onClick={() => void onStop(p)}
-                  >
-                    停止
-                  </button>
+                  {p.localState === 'running' && (
+                    <button
+                      className="ghost"
+                      disabled={p.localState === 'stopping' || p.localState === 'removing'}
+                      onClick={() => void onStop(p)}
+                    >
+                      停止
+                    </button>
+                  )}
+                  {p.localState === 'stopped' && (
+                    <button
+                      className="ghost"
+                      onClick={() => void onStart(p)}
+                    >
+                      启动
+                    </button>
+                  )}
                   <button
                     className="ghost danger"
-                    disabled={p.localState === 'stopping' || p.localState === 'removing'}
+                    disabled={p.localState === 'stopping' || p.localState === 'removing' || p.localState === 'starting'}
                     onClick={() => void onRemove(p)}
                   >
                     移除

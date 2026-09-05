@@ -70,7 +70,7 @@ export function AuditPage({ runtime }: { runtime: BrowserRuntimeHandle | null })
   }, [records, methodFilter, initiatorFilter, text, sortDir])
 
   return (
-    <div className="page">
+    <div className="page bw">
       <h1>审计记录</h1>
       {error && <div className="error-line">加载失败：{error}</div>}
 

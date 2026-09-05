@@ -1,10 +1,11 @@
 /**
- * /api/plugins — list, stop/remove, AND the install-by-name family:
+ * /api/plugins — list, stop/remove/start, AND the install-by-name family:
  *   GET  /api/plugins                 → list
  *   GET  /api/plugins/:runId/browser-source → compiled browser-half ESM text
  *   POST /api/plugins                 → multipart zip upload (see upload-route)
  *   POST /api/plugins/install         → { spec } → npm install-by-name
  *   POST /api/plugins/:runId/stop     → fiber.dispose()
+ *   POST /api/plugins/:runId/start    → re-activate from persisted zip
  *   POST /api/plugins/:runId/remove   → stop + registry eviction
  *   POST /api/plugins/:runId/uninstall → remove + drop from the npm ledger
  */
@@ -18,6 +19,10 @@ import { InstallerError, type NpmInstallResult } from '../plugins/installer.js'
 export interface PluginRouteDeps {
   lifecycle: PluginLifecycle
   browserHalfPusher: BrowserHalfPusher
+  /** WS broadcast for plugin lifecycle events (plugin.changed). */
+  broadcast: (op: import('../ws/rpc-bridge.js').RpcOp, payload: unknown) => void
+  /** Plugin loader — owns the start() pipeline for re-activation. */
+  loader: import('../plugins/loader.js').PluginLoader
   /** npm install-by-name handler (wired by startHost from installer.ts). */
   installNpm: (spec: string) => Promise<NpmInstallResult>
   /** Drop a plugin from the npm ledger by pluginRunId (best-effort). */
@@ -122,7 +127,7 @@ export async function handlePluginRoute(deps: PluginRouteDeps, req: IncomingMess
     sendText(res, 400, 'pluginRunId required')
     return
   }
-  if (!action || (action !== 'stop' && action !== 'remove' && action !== 'uninstall')) {
+  if (!action || (action !== 'stop' && action !== 'remove' && action !== 'uninstall' && action !== 'start')) {
     sendText(res, 404, 'unknown action')
     return
   }
@@ -143,9 +148,32 @@ export async function handlePluginRoute(deps: PluginRouteDeps, req: IncomingMess
     // broadcast retract on `stop()` (only on `remove()`). Push the
     // retract here so a "stop then leave in the registry" semantics
     // also drops the browser half from connected shells. Re-attachable
-    // via a future POST /start.
+    // via POST /start.
     deps.browserHalfPusher.retract(pluginRunId, entry.id)
+    deps.broadcast('plugin.changed', { type: 'stop', id: entry.id, pluginRunId })
     sendJson(res, 200, { ok: true })
+    return
+  }
+  if (action === 'start') {
+    // loader.start() runs the full load pipeline — dedup evicts the
+    // stopped entry (lifecycle.remove broadcasts retract) before
+    // registering the fresh run. The returned pluginRunId is NEW.
+    const result = await deps.loader.start(pluginRunId)
+    deps.broadcast('plugin.changed', {
+      type: 'start',
+      id: result.id,
+      pluginRunId: result.pluginRunId,
+      replaced: result.replaced,
+    })
+    sendJson(res, 200, {
+      ok: true,
+      data: {
+        id: result.id,
+        pluginRunId: result.pluginRunId,
+        manifest: result.manifest,
+        replaced: result.replaced,
+      },
+    })
     return
   }
   // remove + uninstall both stop & evict; uninstall additionally drops the
@@ -159,6 +187,7 @@ export async function handlePluginRoute(deps: PluginRouteDeps, req: IncomingMess
     await deps.uninstallNpm(pluginRunId)
   }
   await deps.lifecycle.remove(pluginRunId)
+  deps.broadcast('plugin.changed', { type: action, id: entry.id, pluginRunId })
   sendJson(res, 200, { ok: true })
 }
 

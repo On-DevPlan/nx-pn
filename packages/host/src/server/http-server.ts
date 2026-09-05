@@ -29,6 +29,8 @@ import type { PluginLoader } from '../plugins/loader.js'
 export interface HttpServerDeps extends AuditRouteDeps, PluginRouteDeps, ReplayRouteDeps {
   /** Required by handleUploadPlugin. */
   loader: PluginLoader
+  /** WS broadcast for plugin lifecycle events (plugin.changed). */
+  broadcast: (op: import('../ws/rpc-bridge.js').RpcOp, payload: unknown) => void
 }
 
 export interface HttpServerOptions {
@@ -115,7 +117,7 @@ async function handle(
         await handlePluginRoute(deps, req, res, '/api/plugins')
       } else if (req.method === 'POST') {
         await handleUploadPlugin(
-          { loader: deps.loader, browserHalfPusher: deps.browserHalfPusher },
+          { loader: deps.loader, browserHalfPusher: deps.browserHalfPusher, broadcast: deps.broadcast },
           req,
           res,
         )

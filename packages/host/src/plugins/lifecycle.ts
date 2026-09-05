@@ -64,6 +64,12 @@ export class PluginLifecycle {
    */
   private browserHalfPusher: BrowserHalfPusher | undefined
   /**
+   * WS broadcast for plugin lifecycle events (plugin.changed). When set,
+   * `stop`/`remove` push a lifecycle event so clients can show the
+   * event panel and refresh live.
+   */
+  private broadcast: ((op: 'plugin.changed', payload: unknown) => void) | undefined
+  /**
    * Namespace-storage opener injected by startHost after the storage
    * facility is assembled. `register` calls it synchronously so the
    * returned promise is captured on the entry before any await point.
@@ -85,6 +91,14 @@ export class PluginLifecycle {
    */
   setBrowserHalfPusher(pusher: BrowserHalfPusher): void {
     this.browserHalfPusher = pusher
+  }
+
+  /**
+   * Inject the WS lifecycle-event broadcaster. Once set, `stop()` and
+   * `remove()` push a `plugin.changed` event for the event panel.
+   */
+  setLifecycleBroadcast(broadcast: (op: 'plugin.changed', payload: unknown) => void): void {
+    this.broadcast = broadcast
   }
 
   /**

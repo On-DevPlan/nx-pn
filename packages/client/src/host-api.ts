@@ -104,6 +104,11 @@ export function stopPlugin(base: string, pluginRunId: string): Promise<void> {
   return request<void>(`${base}/api/plugins/${encodeURIComponent(pluginRunId)}/stop`, { method: 'POST' })
 }
 
+/** POST /api/plugins/:runId/start — re-activate a stopped plugin. */
+export function startPlugin(base: string, pluginRunId: string): Promise<PluginSummary> {
+  return request<PluginSummary>(`${base}/api/plugins/${encodeURIComponent(pluginRunId)}/start`, { method: 'POST' })
+}
+
 /** POST /api/plugins/:runId/remove. */
 export function removePlugin(base: string, pluginRunId: string): Promise<void> {
   return request<void>(`${base}/api/plugins/${encodeURIComponent(pluginRunId)}/remove`, { method: 'POST' })

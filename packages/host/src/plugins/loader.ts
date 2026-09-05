@@ -249,6 +249,31 @@ export class PluginLoader {
   }
 
   /**
+   * Re-activate a previously-stopped plugin from its persisted zip.
+   * Re-runs the load pipeline — the dedup step inside load() evicts the
+   * stopped entry (via lifecycle.remove) before registering the fresh
+   * run — so the registry holds exactly one entry per manifest id. The
+   * returned pluginRunId is therefore NEW; the old one is gone.
+   *
+   * Only zip-uploaded plugins can be restarted (they own a `zipPath`).
+   * npm-installed plugins have no persisted zip and must be re-installed
+   * instead — calling start() on one throws `plugin/no-zip`.
+   */
+  async start(pluginRunId: string): Promise<LoadResult> {
+    const entry = this.deps.lifecycle.byRunId(pluginRunId)
+    if (!entry) {
+      throw new LoaderError('plugin/not-found', `pluginRunId ${pluginRunId} not found`)
+    }
+    if (!entry.zipPath) {
+      throw new LoaderError('plugin/no-zip', `plugin ${entry.id} has no persisted zip (npm-installed; reinstall instead)`)
+    }
+    const bytes = await readFile(entry.zipPath)
+    // load() runs dedup (listById → lifecycle.remove) which evicts the
+    // stopped entry before registering the fresh run.
+    return this.load({ zipBytes: bytes })
+  }
+
+  /**
    * Restart: scan data-dir/plugins/*.zip and replay each through the
    * loader pipeline. Used on cold start. Each loader.load call creates
    * its own fiber — no ctx reuse is attempted.

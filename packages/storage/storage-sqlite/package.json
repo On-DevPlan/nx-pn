@@ -1,6 +1,6 @@
 {
   "name": "@flowot/nx-pn-storage-sqlite",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "SQLite storage backend (document-per-row KV) for the nx-pn storage hub, via node:sqlite (dsh storage-family port)",
   "license": "MIT",
   "publishConfig": {

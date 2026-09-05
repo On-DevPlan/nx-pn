@@ -127,6 +127,24 @@ export async function runPluginStop(opts: CliOptions): Promise<void> {
   console.log(`✔ 已停止 ${runId} (on :${opts.port})`)
 }
 
+export async function runPluginStart(opts: CliOptions): Promise<void> {
+  const runId = opts.pluginTarget!
+  if (!(await probeHost(opts.port))) {
+    throw new Error(`no live host on :${opts.port} — 'plugin start' must target a running host (start it first, then retry)`)
+  }
+  const res = await fetch(`http://localhost:${opts.port}/api/plugins/${encodeURIComponent(runId)}/start`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(60_000),
+  })
+  const json = (await res.json().catch(() => null)) as
+    | { ok: boolean; data?: { pluginRunId: string; manifest?: { version?: string } }; error?: { code?: string; message?: string } }
+    | null
+  if (res.status >= 300 || !json?.ok) {
+    throw new Error(`plugin start failed on live host :${opts.port} (${json?.error?.code ?? 'HTTP ' + res.status}): ${json?.error?.message ?? 'no detail'}`)
+  }
+  console.log(`✔ 已启动 ${runId} → ${json.data?.pluginRunId ?? '?'} (v${json.data?.manifest?.version ?? '?'}) (on :${opts.port})`)
+}
+
 export async function runPluginRemove(opts: CliOptions): Promise<void> {
   const runId = opts.pluginTarget!
   if (!(await probeHost(opts.port))) {

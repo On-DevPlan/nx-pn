@@ -26,6 +26,24 @@ export interface SnapshotData {
   auditLastId: number
   records: unknown[]
   plugins: PluginManifestEntry[]
+  /** Monotonic snapshot sequence — incremented by the host on every plugin
+   *  lifecycle event (load/stop/start/remove). Lets the client coalesce
+   *  rapid plugin.changed bursts without thrashing the React tree. */
+  pluginSeq: number
+  /** Recent plugin lifecycle events (newest-last, capped by the host).
+   *  Drives the "加载事件" panel on the Plugins page. */
+  pluginEvents: PluginEvent[]
+}
+
+/** A single plugin lifecycle event pushed to the client. */
+export interface PluginEvent {
+  seq: number
+  ts: number
+  type: 'upload' | 'install' | 'start' | 'stop' | 'remove' | 'uninstall'
+  id: string
+  pluginRunId: string
+  /** pluginRunIds evicted by dedup on load/start/upload/install, if any. */
+  replaced?: string[]
 }
 
 /** Server `audit.append` push (payload is the raw record). */
@@ -47,15 +65,37 @@ export function isPluginManifestEntry(value: unknown): value is PluginManifestEn
 /** Parse a `snapshot.respond` payload. */
 export function parseSnapshot(payload: unknown): SnapshotData | undefined {
   if (!payload || typeof payload !== 'object') return undefined
-  const p = payload as { generation?: unknown; auditLastId?: unknown; records?: unknown; plugins?: unknown }
+  const p = payload as {
+    generation?: unknown
+    auditLastId?: unknown
+    records?: unknown
+    plugins?: unknown
+    pluginSeq?: unknown
+    pluginEvents?: unknown
+  }
   const generation = typeof p.generation === 'number' ? p.generation : 0
   const auditLastId = typeof p.auditLastId === 'number' ? p.auditLastId : 0
   const records = Array.isArray(p.records) ? p.records : []
   const pluginsRaw = Array.isArray(p.plugins) ? p.plugins : []
+  const eventsRaw = Array.isArray(p.pluginEvents) ? p.pluginEvents : []
   return {
     generation,
     auditLastId,
     records,
     plugins: pluginsRaw.filter(isPluginManifestEntry),
+    pluginSeq: typeof p.pluginSeq === 'number' ? p.pluginSeq : 0,
+    pluginEvents: eventsRaw.filter(isPluginEvent),
   }
+}
+
+function isPluginEvent(value: unknown): value is PluginEvent {
+  if (!value || typeof value !== 'object') return false
+  const v = value as { seq?: unknown; ts?: unknown; type?: unknown; id?: unknown; pluginRunId?: unknown }
+  return (
+    typeof v.seq === 'number'
+    && typeof v.ts === 'number'
+    && typeof v.type === 'string'
+    && typeof v.id === 'string'
+    && typeof v.pluginRunId === 'string'
+  )
 }

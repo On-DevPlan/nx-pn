@@ -12,7 +12,7 @@ import type { PluginLoader } from '../plugins/loader.js'
 import { LoaderError } from '../plugins/loader.js'
 import type { BrowserHalfPusher } from '../ws/browser-half-pusher.js'
 
-export function handleUploadPlugin(deps: { loader: PluginLoader; browserHalfPusher: BrowserHalfPusher }, req: IncomingMessage, res: ServerResponse): void {
+export function handleUploadPlugin(deps: { loader: PluginLoader; browserHalfPusher: BrowserHalfPusher; broadcast: (op: import('../ws/rpc-bridge.js').RpcOp, payload: unknown) => void }, req: IncomingMessage, res: ServerResponse): void {
   const ctype = (req.headers['content-type'] ?? '').toString()
   const m = ctype.match(/boundary=(?:"([^"]+)"|([^;]+))/i)
   if (!m) {
@@ -43,6 +43,12 @@ export function handleUploadPlugin(deps: { loader: PluginLoader; browserHalfPush
       if (result.browserSource) {
         deps.browserHalfPusher.load({ id: result.id, pluginRunId: result.pluginRunId, code: result.browserSource })
       }
+      deps.broadcast('plugin.changed', {
+        type: 'upload',
+        id: result.id,
+        pluginRunId: result.pluginRunId,
+        replaced: result.replaced,
+      })
       sendJson(res, 201, {
         ok: true,
         data: {

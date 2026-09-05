@@ -48,6 +48,8 @@ export interface BrowserRuntimeHandle {
   onSnapshot: (cb: (snap: SnapshotData) => void) => () => void
   /** Latest snapshot (or undefined pre-connect). */
   snapshot: () => SnapshotData | undefined
+  /** Plugin lifecycle-event listeners (drives the 加载事件 panel). */
+  onPluginChanged: (cb: (snap: SnapshotData) => void) => () => void
   /** Current connection state. */
   status: () => 'offline' | 'connected' | 'connecting' | 'stopped'
   /** Close the WS + stop reconnecting. */
@@ -77,6 +79,7 @@ export class BrowserRuntime {
   private readonly rpc: RpcClient
   private readonly transport: WsTransport
   private snapshotListeners = new Set<(snap: SnapshotData) => void>()
+  private pluginChangedListeners = new Set<(snap: SnapshotData) => void>()
   private currentSnapshot: SnapshotData | undefined
   private readonly auditPushes: ((record: unknown) => void)[]
   private readonly halves = new Map<string, BrowserHalfRecord>()
@@ -111,6 +114,14 @@ export class BrowserRuntime {
     }
   }
 
+  onPluginChanged(cb: (snap: SnapshotData) => void): () => void {
+    this.pluginChangedListeners.add(cb)
+    if (this.currentSnapshot) cb(this.currentSnapshot)
+    return () => {
+      this.pluginChangedListeners.delete(cb)
+    }
+  }
+
   onAuditPush(cb: (record: unknown) => void): () => void {
     this.auditPushes.push(cb)
     return () => {
@@ -128,13 +139,13 @@ export class BrowserRuntime {
     // (cold start / reload) fetch each declared browser half's compiled
     // source over REST and load it; retract halves whose plugin vanished.
     void this.reconcile(snap)
-    for (const cb of [...this.snapshotListeners]) {
-      try {
-        cb(snap)
-      } catch {
-        // listener errors are isolated
+    const notify = (listeners: Set<(s: SnapshotData) => void>) => {
+      for (const cb of [...listeners]) {
+        try { cb(snap) } catch { /* listener errors are isolated */ }
       }
     }
+    notify(this.snapshotListeners)
+    notify(this.pluginChangedListeners)
   }
 
   /** Deliver an audit.append push. */
@@ -294,6 +305,7 @@ export async function connectRpc(opts: ConnectRpcOptions = {}): Promise<BrowserR
     pages,
     onSnapshot: (cb) => runtime.onSnapshot(cb),
     snapshot: () => runtime.snapshot(),
+    onPluginChanged: (cb) => runtime.onPluginChanged(cb),
     status: () => runtime.status,
     close: () => runtime.close(),
   }
@@ -401,7 +413,7 @@ export {
 export { ClientAuditClientProxy } from './audit/client-proxy.js'
 export { HostCallService, bindHostCallRpc } from './host-call-service.js'
 export { CordisContext } from './cordis/cordis-shim.js'
-export { fetchAudit, fetchReplay, fetchPluginList, stopPlugin, removePlugin, uninstallPlugin, uploadPlugin, installPluginByName, ApiError } from './host-api.js'
+export { fetchAudit, fetchReplay, fetchPluginList, stopPlugin, startPlugin, removePlugin, uninstallPlugin, uploadPlugin, installPluginByName, ApiError } from './host-api.js'
 export type { PluginSummary, PluginInstallResult, AuditSnapshot, ReplayRequest, ApiErrorPayload } from './host-api.js'
 export type { AuditRecord, AuditResponse } from './types.js'
-export type { SnapshotData } from './snapshot/snapshot.js'
+export type { SnapshotData, PluginEvent } from './snapshot/snapshot.js'

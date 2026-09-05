@@ -86,11 +86,47 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
   // pluginRunIds from shadowing the new run on the client side.
   lifecycle.setBrowserHalfPusher(browserHalfPusher)
 
-  const broadcast = (op: import('./ws/rpc-bridge.js').RpcOp, payload: unknown): void => {
+  // WS broadcast — wrapped below so plugin.changed also lands in the
+  // lifecycle events buffer (drives the client's 加载事件 panel).
+  let broadcast = (op: import('./ws/rpc-bridge.js').RpcOp, payload: unknown): void => {
     ws.forEach((_s, bridge) => bridge.sendNotification(op, payload))
   }
+  lifecycle.setLifecycleBroadcast(broadcast)
 
-  // ── storage assembly (v1 durable + v2 plugin ns) ─────────────────────
+  // ── plugin lifecycle events buffer (drives the 加载事件 panel) ─────
+  // Local mirror of the client's PluginEvent shape — keeps packages/host
+  // free of any client/core deps (host owns only its own cordis runtime).
+  // Field layout MUST stay in sync with client/snapshot.ts → PluginEvent.
+  interface PluginEvent {
+    seq: number
+    ts: number
+    type: 'upload' | 'install' | 'start' | 'stop' | 'remove' | 'uninstall' | 'unknown'
+    id: string
+    pluginRunId: string
+    replaced?: string[]
+  }
+  // Newest-last ring, capped at CAP. Every broadcast('plugin.changed', …)
+  // call pushes an event here; the snapshot includes the buffer so every
+  // connected client sees the same event stream after reconcile.
+  const PLUGIN_EVENT_CAP = 50
+  let pluginSeq = 0
+  const pluginEvents: PluginEvent[] = []
+  const rawBroadcast = broadcast
+  broadcast = (op, payload) => {
+    if (op === 'plugin.changed') {
+      const e = payload as { type?: string; id?: string; pluginRunId?: string; replaced?: string[] }
+      pluginEvents.push({
+        seq: ++pluginSeq,
+        ts: Date.now(),
+        type: (e.type as PluginEvent['type']) ?? 'unknown',
+        id: e.id ?? '',
+        pluginRunId: e.pluginRunId ?? '',
+        ...(e.replaced ? { replaced: e.replaced } : {}),
+      })
+      if (pluginEvents.length > PLUGIN_EVENT_CAP) pluginEvents.splice(0, pluginEvents.length - PLUGIN_EVENT_CAP)
+    }
+    rawBroadcast(op, payload)
+  }
   // Everything durable lives under <dataDir>/storage: the audit trail, the
   // npm ledger, resolved credentials, and one `plugin-<id>` namespace per
   // loaded plugin. The facility stays a local — `storage.domain` is typed
@@ -144,11 +180,12 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
 
   setHostDeps(depsBag)
 
-  // §4.5.4 — per-connection snapshot push + reconnect reconciliation.
   const snapshot = (bridge: import('./ws/rpc-bridge.js').RpcBridge, sinceId = 0) => ({
     generation: bridge.generation,
     auditLastId: buffer.lastId,
     records: buffer.since(sinceId),
+    pluginSeq,
+    pluginEvents: [...pluginEvents],
     plugins: lifecycle.list().map((e) => ({
       id: e.id,
       pluginRunId: e.pluginRunId,
@@ -388,8 +425,9 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
     loader,
     lifecycle,
     browserHalfPusher,
+    broadcast,
     installNpm: (spec: string) =>
-      npmInstallPlugin({ spec, dataDir: opts.dataDir, ctx, lifecycle, pluginsDomain }),
+      npmInstallPlugin({ spec, dataDir: opts.dataDir, ctx, lifecycle, pluginsDomain, broadcast }),
     uninstallNpm: async (pluginRunId: string) => {
       const entry = lifecycle.byRunId(pluginRunId)
       if (entry) await uninstallNpmPlugin({ id: entry.id, dataDir: opts.dataDir, pluginsDomain })

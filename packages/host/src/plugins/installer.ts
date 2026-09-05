@@ -46,6 +46,8 @@ export interface NpmInstallPluginOptions {
   lifecycle: PluginLifecycle
   /** Open plugins-ledger domain (npm install-by-name ledger → storage). */
   pluginsDomain: Domain<typeof pluginsSpec>
+  /** WS broadcast for plugin lifecycle events (plugin.changed). */
+  broadcast?: (op: import('../ws/rpc-bridge.js').RpcOp, payload: unknown) => void
 }
 
 export interface NpmInstallResult {
@@ -233,6 +235,13 @@ export async function npmInstallPlugin(opts: NpmInstallPluginOptions): Promise<N
   const ledger = await readLedger(opts)
   ledger[id] = { spec, name, version: manifest.version, installedAt: new Date().toISOString() }
   await writeLedger(opts, ledger)
+
+  opts.broadcast?.('plugin.changed', {
+    type: 'install',
+    id,
+    pluginRunId,
+    replaced,
+  })
 
   return {
     id,

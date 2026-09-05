@@ -109,7 +109,7 @@ export function ReplayPage({ runtime }: { runtime: BrowserRuntimeHandle | null }
   }
 
   return (
-    <div className="page">
+    <div className="page bw">
       <h1>API 重放</h1>
       <div className="replay-grid">
         <section className="card">

@@ -50,7 +50,7 @@
   --link-hover: #0066ff;
 
   /* —— 侧栏 ———————————————————————————————— */
-  --sidebar-bg: #1e2430;
+  --sidebar-bg: #000000;
   --sidebar-text: #dfe3ec;
   --sidebar-muted: #aeb6c4;
   --sidebar-faint: #6e7689;
@@ -163,6 +163,84 @@ body {
   padding: 12px 16px;
 }
 
+/* ── debug panel (sidebar footer) ─────────────────────────── */
+
+.debug-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.debug-toggle {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--sidebar-faint);
+  color: var(--sidebar-muted);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: var(--fs-base);
+  text-align: left;
+  cursor: pointer;
+  height: auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.debug-toggle:hover {
+  color: var(--text-inverse);
+  border-color: var(--sidebar-muted);
+}
+
+.debug-events {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--sidebar-faint);
+  border-radius: var(--radius-sm);
+  padding: 6px 6px 4px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.debug-events ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.debug-events li {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 4px 6px;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 10px;
+  color: var(--sidebar-muted);
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.05);
+}
+
+.debug-events li:last-child {
+  border-bottom: none;
+}
+
+.debug-time {
+  color: var(--sidebar-faint);
+  white-space: nowrap;
+}
+
+.debug-id,
+.debug-rid {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.debug-events .event-type {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
 .ws-badge {
   font-size: var(--fs-base);
   color: var(--sidebar-muted);
@@ -213,6 +291,48 @@ body {
  * content (the shell's .main padding no longer applies). */
 .fullscreen-root .page {
   padding: 20px 28px;
+}
+
+/* ── fullscreen 返回首页悬浮按钮 ───────────────────── */
+
+/* 全屏插件页隐藏侧栏后可能没有返回入口；这是一个全局悬浮的“返回首页”
+ * 按钮（固定右下角），保证随时一键回到 /audit。仅在全屏页面渲染。 */
+.back-home-fab {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  min-width: 0;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--text);
+  font-size: var(--fs-control);
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(15, 18, 25, 0.16);
+  transition: border-color 0.12s, color 0.12s, box-shadow 0.12s, transform 0.12s;
+}
+
+.back-home-fab:hover:not(:disabled) {
+  border-color: var(--brand);
+  color: var(--brand);
+  box-shadow: 0 6px 20px rgba(15, 18, 25, 0.24);
+  transform: translateY(-1px);
+}
+
+.back-home-fab:active:not(:disabled) {
+  background: var(--brand-soft);
+}
+
+.back-home-fab-icon {
+  font-size: 16px;
+  line-height: 1;
 }
 
 .page {
@@ -817,6 +937,78 @@ textarea + .muted {
 
 .form > label:last-child {
   margin-bottom: 0;
+}
+
+/* ============================================================
+ * 黑白简约风格 —— 仅作用于基座 brand、审计记录、API 重放、插件管理
+ * 通过 .bw-nav(侧栏内置导航)和 .bw(三个内置页面外层)切换。
+ * 蓝→灰阶替换;状态色(success/warn/error)与 --link 保持不变。
+ * ============================================================ */
+
+/* 内置 nav 当前路由高亮:黑底白字替代蓝底白字 */
+.bw-nav .nav-item.active {
+  background: #ffffff;
+  color: #000000;
+}
+
+/* HTTP method pill(PUT/PATCH):灰底替代蓝底 */
+.bw .method.PUT,
+.bw .method.PATCH {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* 加载事件类型 pill —— 黑白灰风格 */
+.bw .event-type {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+  display: inline-block;
+}
+.bw .event-upload,
+.bw .event-install,
+.bw .event-start {
+  background: #1f2430;
+  color: var(--text-inverse);
+}
+.bw .event-stop,
+.bw .event-remove,
+.bw .event-uninstall {
+  background: var(--color-error-soft);
+  color: #b0222f;
+}
+
+/* 行 hover:浅灰替代浅蓝 */
+.bw .row-click:hover {
+  background: var(--surface-hover);
+}
+
+/* 表单 focus:黑边 + 浅灰阴影替代蓝边蓝影 */
+.bw input:focus,
+.bw select:focus,
+.bw textarea:focus {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--surface-hover);
+}
+
+/* 按钮 hover:active:黑边黑字 + 浅灰底 */
+.bw button:hover:not(:disabled) {
+  border-color: var(--text);
+  color: var(--text);
+}
+.bw button:active:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+/* sort-toggle / th-sort hover */
+.bw .sort-toggle:hover,
+.bw .th-sort:hover {
+  border-color: var(--text);
+  color: var(--text);
 }
 
 .form > label select,

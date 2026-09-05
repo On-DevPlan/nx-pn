@@ -1,6 +1,7 @@
 import { Component, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { connectRpc, fetchPluginList, installBrowserHalfFromHost, type BrowserRuntimeHandle, type PageRegistration, type PageRouteEntry } from '@flowot/nx-pn-client'
+import type { PluginEvent } from '@flowot/nx-pn-client'
 import { AuditPage } from './pages/AuditPage'
 import { ReplayPage } from './pages/ReplayPage'
 import { PluginsPage } from './pages/PluginsPage'
@@ -161,7 +162,7 @@ export function App() {
         <Route path="/" element={<Navigate to="/audit" replace />} />
         <Route path="/audit" element={<AuditPage runtime={runtime} />} />
         <Route path="/replay" element={<ReplayPage runtime={runtime} />} />
-        <Route path="/plugins" element={<PluginsPage />} />
+        <Route path="/plugins" element={<PluginsPage runtime={runtime} />} />
         {shellPages.map((p) => (
           <Route
             key={`${p.pluginId}:${p.path}`}
@@ -207,23 +208,32 @@ function ShellLayout({
 }) {
   if (fullscreenActive) {
     // Fullscreen subtree — the <Routes> above resolves the active plugin's
-    // FullscreenSlot (its own local routes render the viewport).
-    return <>{children}</>
+    // FullscreenSlot (its own local routes render the viewport). The plugin
+    // owns the whole viewport (no sidebar/brand), so we overlay a small
+    // floating 返回首页 button as a global escape hatch back to /audit.
+    return (
+      <>
+        {children}
+        <BackToHomeFab />
+      </>
+    )
   }
   return (
     <div className="layout">
       <aside className="sidebar">
         <div className="brand">API Audit</div>
         <nav>
-          <NavLink to="/audit" className="nav-item">
-            审计记录
-          </NavLink>
-          <NavLink to="/replay" className="nav-item">
-            API 重放
-          </NavLink>
-          <NavLink to="/plugins" className="nav-item">
-            插件管理
-          </NavLink>
+          <div className="bw-nav">
+            <NavLink to="/audit" className="nav-item">
+              审计记录
+            </NavLink>
+            <NavLink to="/replay" className="nav-item">
+              API 重放
+            </NavLink>
+            <NavLink to="/plugins" className="nav-item">
+              插件管理
+            </NavLink>
+          </div>
           {fullscreenPages.length > 0 && <div className="nav-sep">插件页面（全屏）</div>}
           {fullscreenPages.map((p) => (
             <NavLink key={`${p.pluginId}:${p.path}`} to={p.path} className="nav-item">
@@ -238,7 +248,7 @@ function ShellLayout({
           ))}
         </nav>
         <div className="sidebar-foot">
-          <WsBadge runtime={runtime} />
+          <DebugPanel runtime={runtime} />
         </div>
       </aside>
       <main className="main">{children}</main>
@@ -342,8 +352,41 @@ function BackToShell() {
   return <button onClick={() => navigate('/audit')}>返回壳</button>
 }
 
-function WsBadge({ runtime }: { runtime: BrowserRuntimeHandle | null }) {
+/**
+ * Global floating "返回首页" button, shown only while a fullscreen plugin
+ * page owns the viewport (sidebar hidden). Some fullscreen plugins don't
+ * ship their own escape hatch, so this guarantees a one-click way back to
+ * the shell's home page (/audit).
+ */
+function BackToHomeFab() {
+  const navigate = useNavigate()
+  return (
+    <button
+      type="button"
+      className="back-home-fab"
+      title="返回首页（/audit）"
+      aria-label="返回首页"
+      onClick={() => navigate('/audit')}
+    >
+      <span className="back-home-fab-icon" aria-hidden="true">
+        ⌂
+      </span>
+      <span className="back-home-fab-text">返回首页</span>
+    </button>
+  )
+}
+
+/**
+ * Sidebar footer: WS connection state + a collapsible event log (plugin
+ * lifecycle events streamed over `plugin.changed`). Collapsed by default
+ * — it's a debugging surface, not chrome.
+ */
+function DebugPanel({ runtime }: { runtime: BrowserRuntimeHandle | null }) {
+  const [open, setOpen] = useState(false)
   const [state, setState] = useState<string>('connecting')
+  const [events, setEvents] = useState<PluginEvent[]>([])
+  const [pluginSeq, setPluginSeq] = useState(0)
+
   useEffect(() => {
     if (!runtime) return
     const tick = (): void => setState(runtime.status())
@@ -351,8 +394,65 @@ function WsBadge({ runtime }: { runtime: BrowserRuntimeHandle | null }) {
     const id = window.setInterval(tick, 500)
     return () => window.clearInterval(id)
   }, [runtime])
+
+  useEffect(() => {
+    if (!runtime) return
+    const unsub = runtime.onPluginChanged((snap) => {
+      if ((snap.pluginSeq ?? 0) > pluginSeq) {
+        setPluginSeq(snap.pluginSeq ?? 0)
+        setEvents(snap.pluginEvents ?? [])
+      }
+    })
+    return unsub
+  }, [runtime, pluginSeq])
+
   const live = state === 'connected'
-  return <span className={`ws-badge ${live ? 'on' : ''}`}>{live ? '已连接' : '连接中…'}</span>
+
+  return (
+    <div className="debug-panel">
+      <span className={`ws-badge ${live ? 'on' : ''}`}>{live ? '已连接' : '连接中…'}</span>
+      <button
+        type="button"
+        className="debug-toggle"
+        onClick={() => setOpen((v) => !v)}
+        title="插件加载/启动/停止事件"
+      >
+        {open ? '▼' : '▶'} 插件事件 ({events.length})
+      </button>
+      {open && (
+        <div className="debug-events">
+          {events.length === 0 ? (
+            <div className="muted" style={{ padding: '6px 4px' }}>暂无</div>
+          ) : (
+            <ul>
+              {[...events].reverse().slice(0, 10).map((e) => (
+                <li key={`${e.seq}:${e.pluginRunId}`}>
+                  <span className="debug-time mono">{formatDebugTime(e.ts)}</span>
+                  <span className={`event-type event-${e.type}`}>{DEBUG_EVENT_LABEL[e.type] ?? e.type}</span>
+                  <span className="debug-id mono">{e.id}</span>
+                  <span className="debug-rid mono">{e.pluginRunId}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function formatDebugTime(ts: number): string {
+  const d = new Date(ts)
+  return d.toLocaleTimeString('zh-CN', { hour12: false })
+}
+
+const DEBUG_EVENT_LABEL: Record<string, string> = {
+  upload: '上传',
+  install: '安装',
+  start: '启动',
+  stop: '停止',
+  remove: '移除',
+  uninstall: '卸载',
 }
 
 function NotFound() {

@@ -17,7 +17,7 @@ import { npmInstallPlugin, uninstallNpmPlugin, startHost, type StartedHost } fro
 import { InitError, scaffoldPlugin } from './init.js'
 import { probeHost } from './probe.js'
 import { runAuditList, runAuditLastId } from './audit-cmds.js'
-import { runPluginList, runPluginShow, runPluginStop, runPluginRemove, runPluginUninstall } from './plugin-cmds.js'
+import { runPluginList, runPluginShow, runPluginStop, runPluginStart, runPluginRemove, runPluginUninstall } from './plugin-cmds.js'
 import { runBuild } from './build-cmd.js'
 
 export const DEFAULT_PORT = 4560
@@ -55,8 +55,8 @@ export interface CliOptions {
   auditQuery?: AuditQueryFlags
   /** For `audit|plugin` — machine output format. */
   format?: 'json' | 'jsonl' | 'csv' | 'table' | 'human'
-  /** For `plugin` — action: list | show | stop | remove | uninstall. */
-  pluginAction?: 'list' | 'show' | 'stop' | 'remove' | 'uninstall'
+  /** For `plugin` — action: list | show | stop | start | remove | uninstall. */
+  pluginAction?: 'list' | 'show' | 'stop' | 'start' | 'remove' | 'uninstall'
   /** For `plugin show|stop|remove|uninstall` — target id or runId. */
   pluginTarget?: string
   /** For `build <dir>` — plugin directory. */
@@ -211,7 +211,7 @@ export function parseArgs(argv: string[]): CliOptions {
       }
     } else if (cmd === 'plugin') {
       opts.subcommand = 'plugin'
-      const actions = ['list', 'show', 'stop', 'remove', 'uninstall'] as const
+      const actions = ['list', 'show', 'stop', 'start', 'remove', 'uninstall'] as const
       if (!second || !(actions as readonly string[]).includes(second)) {
         throw new CliArgError(`plugin requires an action: ${actions.join(' | ')} (got ${second ?? 'nothing'})`)
       }
@@ -270,6 +270,7 @@ Commands:
                           [--format json|jsonl|csv|table|human]
   plugin show <id|runId>  Show one plugin's manifest (JSON)
   plugin stop <runId>     Stop a running plugin (fiber.dispose)
+  plugin start <runId>    Re-activate a stopped plugin (from its persisted zip)
   plugin remove <runId>   Stop + evict from the lifecycle registry
   plugin uninstall <id>   Remove + drop from the npm ledger
   build <pluginDir>       Build a plugin's zip (runs its scripts/build-zip.mjs)
@@ -332,6 +333,9 @@ export async function runCli(argv: string[]): Promise<void> {
         break
       case 'stop':
         await runPluginStop(opts)
+        break
+      case 'start':
+        await runPluginStart(opts)
         break
       case 'remove':
         await runPluginRemove(opts)
