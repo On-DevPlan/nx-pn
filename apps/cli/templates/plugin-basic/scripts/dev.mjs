@@ -21,7 +21,7 @@
  */
 
 import { watch } from 'node:fs'
-import { spawn, execFile } from 'node:child_process'
+import { spawn, spawnSync, execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -103,33 +103,81 @@ async function waitForHost(timeoutMs) {
   return false
 }
 
+/** Launch a host process without popping a console window. */
+function launchHost(cmd, args) {
+  spawn(cmd, args, {
+    shell: true,
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  }).unref()
+}
+
+/** Is `nx-pn` already on PATH (global install)? Fast, no download. */
+function hasGlobalNxPn() {
+  try {
+    return spawnSync('nx-pn', ['--version'], {
+      shell: true, windowsHide: true, timeout: 5000, stdio: 'ignore',
+    }).status === 0
+  } catch {
+    return false
+  }
+}
+
+/** Is `@flowot/nx-pn` fully present in the npx cache (no download needed)? */
+function hasNpxCache() {
+  try {
+    return spawnSync('npx', ['--no-install', '@flowot/nx-pn', '--version'], {
+      windowsHide: true, timeout: 8000, stdio: 'ignore',
+    }).status === 0
+  } catch {
+    return false
+  }
+}
+
 /**
  * Make sure a host is running before the first upload. If none answers on
- * --port, start one:
- *   - NX_PN_HOST_CMD (explicit, e.g. a monorepo dev entry) if set
- *   - otherwise `npx --yes @flowot/nx-pn --no-open`
- * Then poll until it answers (25s budget).
+ * --port, try to start one quickly — no silent npx download, no new
+ * console window:
+ *   1. NX_PN_HOST_CMD        explicit launch command (bring your own flags)
+ *   2. `nx-pn` on PATH       globally installed once (dsh-style: install once,
+ *                            use forever — `npm i -g @flowot/nx-pn`)
+ *   3. npx cache             `@flowot/nx-pn` already fetched → reuse it
+ *   4. otherwise             print setup guidance and keep watching; the next
+ *                            save retries once a host appears
+ * Each start attempt gets a generous wait budget, but the probes above are
+ * all sub-second — no 25s stall on a cold npx download.
  */
 async function ensureHost() {
   if (await probeHost()) {
     console.log(`[dev] 已连接运行中的 web（:${port}）`)
     return
   }
-  const cmd = process.env.NX_PN_HOST_CMD
-  if (cmd) {
-    console.log(`[dev] 检测到 web 未运行，启动底座: ${cmd}`)
-    spawn(cmd, { shell: true, detached: true, stdio: 'ignore' }).unref()
+  const baseArgs = ['--no-open', '--port', String(port)]
+  if (dataDir) baseArgs.push('--data-dir', dataDir)
+
+  if (process.env.NX_PN_HOST_CMD) {
+    console.log(`[dev] 检测到 web 未运行，启动底座: ${process.env.NX_PN_HOST_CMD}`)
+    launchHost(process.env.NX_PN_HOST_CMD, [])
+  } else if (hasGlobalNxPn()) {
+    console.log(`[dev] 检测到 web 未运行，启动全局 nx-pn ${baseArgs.join(' ')}`)
+    launchHost('nx-pn', baseArgs)
+  } else if (hasNpxCache()) {
+    console.log(`[dev] 检测到 web 未运行，用 npx 缓存启动 @flowot/nx-pn ${baseArgs.join(' ')}`)
+    launchHost('npx', ['--yes', '@flowot/nx-pn', ...baseArgs])
   } else {
-    const args = ['--yes', '@flowot/nx-pn', '--no-open', '--port', String(port)]
-    if (dataDir) args.push('--data-dir', dataDir)
-    console.log(`[dev] 检测到 web 未运行，npx 启动 @flowot/nx-pn: ${args.slice(1).join(' ')}`)
-    spawn('npx', args, { shell: true, detached: true, stdio: 'ignore' }).unref()
-  }
-  if (await waitForHost(25_000)) {
-    console.log(`[dev] 底座已就绪（:${port}）`)
+    console.warn(`[dev] ⚠ 未找到可用的底座（:${port} 无响应，本机也没有可复用的 nx-pn）`)
+    console.warn(`      任选其一后再保存文件即自动部署：`)
+    console.warn(`        1. npm i -g @flowot/nx-pn        # 全局装一次，之后本脚本自动拉起（推荐）`)
+    console.warn(`        2. 手动启动: npx @flowot/nx-pn    # 或 node <repo>/apps/cli/bin/nx-pn.mjs`)
+    console.warn(`        3. 设置 NX_PN_HOST_CMD 指定启动命令`)
     return
   }
-  console.warn('[dev] ⚠ 底座 25s 内未就绪 — 请手动启动底座后重试；或设置 NX_PN_HOST_CMD 指定启动命令')
+  if (await waitForHost(30_000)) {
+    console.log(`[dev] 底座已就绪（:${port}）`)
+  } else {
+    console.warn(`[dev] ⚠ 底座 30s 内未就绪 — 请检查启动命令；dev 继续 watch，就绪后保存文件自动部署`)
+  }
 }
 
 /** One dev cycle: rebuild → upload → report. Serialized (no overlap). */
