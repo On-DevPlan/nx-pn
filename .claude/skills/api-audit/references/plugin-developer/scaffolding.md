@@ -26,17 +26,18 @@ derives four fields:
 Invalid names (uppercase, underscore, non-ASCII, >64 chars, leading/trailing
 hyphen) are rejected **before any file is written** — no half-scaffolds.
 
-## The 8 scaffolded files
+## The 9 scaffolded files
 
 ```
 <dir>/
-├── manifest.json          # halves host+browser, page at /<name>
+├── manifest.json          # halves host+browser, page at /<name> (build-generated)
 ├── package.json           # main/exports → ./host.js + api-audit.manifest
 ├── host.ts                # cordis plugin: hello-call on activation
 ├── browser.tsx            # React counter page, closure-captured ctx
 ├── tsconfig.json          # extends ../../tsconfig.base.json
 ├── README.md              # build/install/develop/publish doc
 ├── scripts/build-zip.mjs  # esbuild + STORED zip + externals assertions
+├── scripts/dev.mjs        # dev watch loop: rebuild + hot-upload on save (npm run dev)
 └── .gitignore             # dist/, node_modules/, *.zip
 ```
 
@@ -82,7 +83,7 @@ takes effect on the next host start (`restartNpmPlugins`).
 |---|---|
 | CLI wiring (`--dir`/`--force`/positional/usage text) | `apps/cli/src/main.ts` (`parseArgs`, `runInit`) |
 | Pure functions + scaffold I/O | `apps/cli/src/init.ts` (`validateName`, `nameToTitle`, `nameToPath`, `nameToComponent`, `renderTemplate`, `scaffoldPlugin`) |
-| Template sources (8 files, `{{var}}` placeholders) | `apps/cli/templates/plugin-basic/` |
+| Template sources (9 files, `{{var}}` placeholders) | `apps/cli/templates/plugin-basic/` |
 | Unit + e2e tests (28) | `apps/cli/src/init.test.ts` |
 
 Key facts:
@@ -99,7 +100,7 @@ Key facts:
 
 ## When to sync this skill (post-feature)
 
-- **New template file added** → update "The 8 scaffolded files" table +
+- **New template file added** → update "The 9 scaffolded files" table +
   `scaffoldPlugin`'s `fileList` in `init.ts` must stay in lockstep
 - **Template placeholder added** → document the new var in this file and in
   `apps/cli/templates/plugin-basic/README.md`

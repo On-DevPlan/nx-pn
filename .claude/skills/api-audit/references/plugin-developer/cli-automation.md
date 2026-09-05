@@ -10,7 +10,7 @@
 
 ```bash
 # Plugin lifecycle
-npx @flowot/nx-pn init <name>                # scaffold a plugin (8 template files)
+npx @flowot/nx-pn init <name>                # scaffold a plugin (9 template files)
 npx @flowot/nx-pn build <pluginDir>          # run the plugin's own build-zip.mjs
 npx @flowot/nx-pn add <spec>                 # install by npm name / file:./dir
 npx @flowot/nx-pn plugin list                # installed plugins (live host, else cold)

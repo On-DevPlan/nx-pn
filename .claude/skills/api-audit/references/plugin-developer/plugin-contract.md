@@ -5,7 +5,7 @@
 Don't hand-copy template files — `init` generates them for you:
 
 ```bash
-npx @flowot/nx-pn init <name>    # → 8 files (manifest, package.json, host.ts,
+npx @flowot/nx-pn init <name>    # → 9 files (manifest, package.json, host.ts,
                                   #    browser.tsx, tsconfig, README,
                                   #    scripts/build-zip.mjs, .gitignore)
 ```

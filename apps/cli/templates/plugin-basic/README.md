@@ -30,7 +30,21 @@ curl -F "zip=@dist/{{id}}.zip" http://localhost:4560/api/plugins
 
 ## Develop
 
-Edit `host.ts` for server-side logic, `browser.tsx` for UI. Re-run `npm run build` after changes.
+```bash
+npm run dev     # watch + auto rebuild + hot-upload to :4560 (page auto-refreshes)
+npm run build   # one-shot build, produces dist/{{id}}.zip
+```
+
+`npm run dev` watches `host.ts` / `browser.tsx` / `src/**` / `package.json`;
+on every save it rebuilds and uploads to the running host — the host
+replaces the old fiber and pushes the new browser half to every open page,
+so you never restart the host or refresh manually. Start the host once:
+
+```bash
+npx @flowot/nx-pn            # or: node apps/cli/bin/nx-pn.mjs (monorepo dev)
+```
+
+Edit `host.ts` for server-side logic, `browser.tsx` for UI.
 
 When the plugin is solid, publish to npm so users can install via `npx @flowot/nx-pn add {{id}}`.
 
@@ -43,4 +57,5 @@ When the plugin is solid, publish to npm so users can install via `npx @flowot/n
 | `host.ts` | Server-side plugin (cordis plugin) |
 | `browser.tsx` | UI page (React component) |
 | `scripts/build-zip.mjs` | esbuild + zip builder with externals assertions |
+| `scripts/dev.mjs` | dev watch loop: rebuild + hot-upload on save |
 | `tsconfig.json` | Extends monorepo base — adjust `extends` if outside the monorepo |

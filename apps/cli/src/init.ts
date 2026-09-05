@@ -116,6 +116,7 @@ export async function scaffoldPlugin(opts: InitOptions): Promise<InitResult> {
     'README.md',
     '.gitignore',
     'scripts/build-zip.mjs',
+    'scripts/dev.mjs',
   ]
 
   // Check dest — refuse non-empty unless --force

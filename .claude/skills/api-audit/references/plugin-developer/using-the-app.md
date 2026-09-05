@@ -31,7 +31,7 @@ Then open `http://localhost:4560` in your browser.
 
 ```bash
 npx @flowot/nx-pn                           # start web server
-npx @flowot/nx-pn init <name>               # scaffold a new plugin (8 files, v0.2.0)
+npx @flowot/nx-pn init <name>               # scaffold a new plugin (9 files, v0.2.0)
 npx @flowot/nx-pn add <package-spec>        # install plugin by npm name
 npx @flowot/nx-pn uninstall <id|runId>     # remove a plugin
 ```

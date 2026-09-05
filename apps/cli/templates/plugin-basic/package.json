@@ -8,6 +8,7 @@
   "description": "{{description}}",
   "scripts": {
     "build": "tsc --noEmit && node scripts/build-zip.mjs",
+    "dev": "node scripts/dev.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
