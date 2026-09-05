@@ -56,6 +56,25 @@ if (!/from\s*["']react-router-dom["']/.test(compiledBrowser)) {
   throw new Error('{{id}}: compiled browser.js must keep react-router-dom external')
 }
 
+// ── manifest.json is GENERATED from package.json (single source of truth) ──
+// The npm-install path reads package.json["api-audit"]; the zip path reads
+// manifest.json. They must never drift, so this build writes manifest.json
+// from package.json on every build. Edit id/version/title in package.json.
+const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf-8'))
+const apiAudit = pkg['api-audit'] ?? {}
+const rawManifest = apiAudit.manifest ?? {}
+const manifest = {
+  schemaVersion: 1,
+  id: rawManifest.id,
+  version: rawManifest.version,
+  title: rawManifest.title,
+  halves: {
+    host: { entry: 'host.js' },
+    browser: { entry: 'browser.js', ...(apiAudit.pages ? { pages: apiAudit.pages } : {}) },
+  },
+}
+await writeFile(join(root, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
+
 const entries = [
   ['manifest.json', await readFile(join(root, 'manifest.json'))],
   ['host.js', await readFile(join(root, 'host.js'))],

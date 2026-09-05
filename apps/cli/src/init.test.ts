@@ -97,17 +97,17 @@ describe('renderTemplate', () => {
 })
 
 describe('scaffoldPlugin (end-to-end)', () => {
-  it('writes 8 files into a fresh dir and replaces {{vars}}', async () => {
+  it('writes 7 files into a fresh dir and replaces {{vars}} (manifest.json is build-generated)', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'init-test-'))
     try {
       const result = await scaffoldPlugin({ name: 'demo-plugin', dir, force: false })
-      expect(result.files.length).toBe(8)
-      const manifest = await readFile(join(dir, 'manifest.json'), 'utf-8')
-      expect(manifest).toContain('"id": "demo-plugin"')
-      expect(manifest).toContain('/demo-plugin')
-      expect(manifest).not.toContain('{{id}}')
+      expect(result.files.length).toBe(7)
+      // manifest.json is NOT scaffolded — build-zip.mjs generates it from
+      // package.json (single source of truth).
+      await expect(readFile(join(dir, 'manifest.json'), 'utf-8')).rejects.toThrow()
       const pkg = await readFile(join(dir, 'package.json'), 'utf-8')
       expect(pkg).toContain('"name": "demo-plugin"')
+      expect(pkg).toContain('"id": "demo-plugin"')
       const host = await readFile(join(dir, 'host.ts'), 'utf-8')
       expect(host).toContain('demo-plugin')
       const browser = await readFile(join(dir, 'browser.tsx'), 'utf-8')
@@ -134,7 +134,7 @@ describe('scaffoldPlugin (end-to-end)', () => {
     try {
       await scaffoldPlugin({ name: 'demo-plugin', dir, force: false })
       const result = await scaffoldPlugin({ name: 'demo-plugin', dir, force: true })
-      expect(result.files.length).toBe(8)
+      expect(result.files.length).toBe(7)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

@@ -1,3 +1,6 @@
 dist/
 node_modules/
 *.zip
+manifest.json
+host.js
+browser.js

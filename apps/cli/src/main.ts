@@ -350,8 +350,23 @@ export async function runCli(argv: string[]): Promise<void> {
   await runServer(opts)
 }
 
-/** One-shot `api-audit add <spec>`: install by name into the live host. */
+/** One-shot `api-audit add <spec>`: install by name into the live host.
+ *
+ * Spec forms:
+ *   - `name`, `name@ver`, `@scope/name`  → npm install-by-name
+ *   - `file:./dir`                       → npm install of a local package dir
+ *   - `file:./dist/x.zip`, `./x.zip`     → dual-half zip upload (the zip path
+ *                                          the Plugins page uses; loader.load)
+ */
 async function runAdd(opts: CliOptions): Promise<void> {
+  // Zip spec? Strip an optional file: prefix, then test the extension.
+  const rawSpec = opts.spec!
+  const specPath = rawSpec.startsWith('file:') ? rawSpec.slice(5) : (rawSpec.match(/\.zip$/) ? rawSpec : undefined)
+  if (specPath && /\.zip$/i.test(specPath)) {
+    await runAddZip(opts, resolve(specPath))
+    return
+  }
+
   // Probe for a long-running host first: alive → forward the install REST
   // route so the plugin hot-adds (and hot-updates) into the running host
   // (eating the installer's upsert semantics); not alive → fall back to the
@@ -373,6 +388,43 @@ async function runAdd(opts: CliOptions): Promise<void> {
     console.log(`✔ 已安装插件 ${r.id} (v${r.version}), run=${r.pluginRunId}`)
     // eslint-disable-next-line no-console
     console.log(`  (ledger 路径 — 下次 host 启动时生效;当前无运行中的 host :${opts.port})`)
+  } finally {
+    await host.stop()
+  }
+}
+
+/** `add <*.zip>`: upload a dual-half zip. Live host → POST /api/plugins
+ * (multipart, same route the Plugins page uses — hot-add + browser push);
+ * cold → ephemeral host + loader.load. Zip plugins are not in the npm
+ * ledger; restarts replay them from dataDir/plugins/. */
+async function runAddZip(opts: CliOptions, zipPath: string): Promise<void> {
+  const { readFile } = await import('node:fs/promises')
+  const zipBytes = new Uint8Array(await readFile(zipPath))
+  if (await probeHost(opts.port)) {
+    const form = new FormData()
+    form.append('zip', new Blob([zipBytes]), 'plugin.zip')
+    const res = await fetch(`http://localhost:${opts.port}/api/plugins`, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(60_000),
+    })
+    const json = (await res.json().catch(() => null)) as
+      | { ok: boolean; data?: { id: string; pluginRunId: string; manifest?: { version?: string } }; error?: { code?: string; message?: string } }
+      | null
+    if (res.status >= 300 || !json?.ok || !json.data) {
+      throw new Error(`zip 上传失败 (HTTP ${res.status}${json?.error ? `, ${json.error.code}: ${json.error.message}` : ''})`)
+    }
+    // eslint-disable-next-line no-console
+    console.log(`✔ 已上传插件 ${json.data.id} (v${json.data.manifest?.version ?? '?'}) 到运行中的 host :${opts.port}, run=${json.data.pluginRunId}`)
+    return
+  }
+  const host: StartedHost = await startHost({ port: 0, dataDir: opts.dataDir })
+  try {
+    const r = await host.loader.load({ zipBytes })
+    // eslint-disable-next-line no-console
+    console.log(`✔ 已加载插件 ${r.id} (v${r.manifest.version}), run=${r.pluginRunId}`)
+    // eslint-disable-next-line no-console
+    console.log(`  (zip 已存入 dataDir/plugins/ — host 下次启动时重放)`)
   } finally {
     await host.stop()
   }

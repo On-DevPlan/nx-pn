@@ -7,9 +7,13 @@
  *   - any ctx.auditClient.get/post/... is attributed to "{{id}}"
  *
  * What this scaffold does:
- *   1. Fires one hello-call at activation so a fresh install already
+ *   1. Increments a durable boot counter in this plugin's OWN namespace
+ *      storage (ctx.pluginStorage — survives stop / remove / re-install;
+ *      stored under the plugin's storage namespace on the host data dir).
+ *   2. Fires one hello-call at activation so a fresh install already
  *      shows a record on /audit attributed to {{id}}.
- *   2. Registers no tool endpoint — extend below.
+ *   3. Registers one tool endpoint your browser half can call via
+ *      ctx.hostCall.hostCall('{{id}}/boot-count', {}) — see browser.tsx.
  */
 
 interface HostCtx {
@@ -18,20 +22,50 @@ interface HostCtx {
   auditClient: {
     get(url: string, config?: { headers?: Record<string, string>; timeoutMs?: number }): Promise<{ status: number; statusText: string; bodyText: string }>
   }
+  /** Per-plugin durable KV — injected by the loader (three tables:
+   *  settings / cache / state; 1000 records per table). */
+  pluginStorage?: {
+    ns: string
+    table(name: 'settings' | 'cache' | 'state'): {
+      get(key: string): unknown
+      put(key: string, value: unknown): Promise<void>
+    }
+  }
 }
 
 type PluginFn = ((ctx: HostCtx, config?: { name?: string }) => void) & { inject?: string[] }
 
 const DEFAULT_URL = 'https://httpbin.org/get'
 
-const plugin = function plugin(ctx: HostCtx, config?: { name?: string }): void {
+const plugin = async function plugin(ctx: HostCtx, config?: { name?: string }): Promise<void> {
   const id = config?.name ?? '{{id}}'
   ctx.logger.info(`[${id}] host half active`)
 
-  // Hello at activation — fire-and-forget.
+  // (1) Durable boot counter — this plugin's own namespace storage.
+  //     Survives stop / remove / re-install (the medium keeps records).
+  let bootCount = 0
+  if (ctx.pluginStorage) {
+    const settings = ctx.pluginStorage.table('settings')
+    const current = settings.get('bootCount')
+    bootCount = (typeof current === 'number' ? current : 0) + 1
+    try {
+      await settings.put('bootCount', bootCount)
+      ctx.logger.info(`[${id}] boot #${bootCount} recorded in ns ${ctx.pluginStorage.ns}`)
+    } catch (err) {
+      // storage failure must never break activation
+      ctx.logger.warn(`[${id}] bootCount persist failed: ${(err as Error).message}`)
+    }
+  }
+
+  // (2) Hello at activation — fire-and-forget; lands on /audit with
+  //     initiator = {{id}}.
   void ctx.auditClient.get(DEFAULT_URL, { headers: { 'user-agent': '{{user-agent}}' } }).catch(() => {
     /* recorded by the audit middleware */
   })
+
+  // (3) Tool endpoint: the browser half (or any WS client) can call
+  //     ctx.hostCall.hostCall('{{id}}/boot-count', {}).
+  ctx.on('{{id}}/boot-count', () => ({ ok: true, data: { bootCount } }))
 
   // ── TODO: register your tool endpoint(s) here ─────────────────────
   // ctx.on('{{id}}/my-tool', (payload) => {

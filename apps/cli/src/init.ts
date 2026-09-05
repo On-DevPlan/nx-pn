@@ -82,7 +82,7 @@ async function locateTemplateDir(): Promise<string> {
   ]
   for (const dir of candidates) {
     try {
-      await readFile(join(dir, 'manifest.json'), 'utf-8')
+      await readFile(join(dir, 'package.json'), 'utf-8')
       return dir
     } catch {
       // try next
@@ -106,8 +106,9 @@ export async function scaffoldPlugin(opts: InitOptions): Promise<InitResult> {
   }
 
   const templateDir = await locateTemplateDir()
+  // manifest.json is NOT scaffolded — the build script generates it from
+  // package.json (single source of truth; see scripts/build-zip.mjs).
   const fileList = [
-    'manifest.json',
     'package.json',
     'host.ts',
     'browser.tsx',
