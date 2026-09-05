@@ -1,6 +1,6 @@
 {
   "name": "@flowot/nx-pn-storage-json",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "JSON file KV storage backend for the nx-pn storage hub: single-document and per-record layouts, atomic publish (dsh storage-family port)",
   "license": "MIT",
   "publishConfig": {

@@ -1,6 +1,6 @@
 {
   "name": "@flowot/nx-pn-storage-domain",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Schema-validated, change-emitting KV domains over nx-pn storage backends: defineDomain, single write chain, domain/changed events (dsh storage-family port)",
   "license": "MIT",
   "publishConfig": {
