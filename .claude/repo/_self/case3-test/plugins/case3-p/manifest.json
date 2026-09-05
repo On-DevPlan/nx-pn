@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "case3-p",
+  "version": "0.0.1",
+  "title": "Case3 Test Plugin",
+  "halves": {
+    "host": {
+      "entry": "host.js"
+    },
+    "browser": {
+      "entry": "browser.js"
+    }
+  }
+}

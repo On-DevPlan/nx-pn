@@ -14,14 +14,17 @@
  *     → on failure: catch → lifecycle.remove (fiber dispose + ns close) → throw
  */
 
-import { mkdir, writeFile, rm, readFile, readdir, realpath } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { mkdir, writeFile, rm, readFile, readdir, realpath, access } from 'node:fs/promises'
+import { dirname, join, basename } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
 import { tmpdir } from 'node:os'
 import { Buffer } from 'node:buffer'
 import { createHash, randomBytes } from 'node:crypto'
 import { inflateSync } from 'node:zlib'
 import type { Context, Fiber } from '../cordis/cordis-shim.js'
 import {
+  MANIFEST_VERSION,
   validateManifest,
   type Manifest,
   MAX_ZIP_BYTES,
@@ -62,6 +65,12 @@ export interface LoadResult {
    * regardless of channel.
    */
   replaced: string[]
+  /**
+   * Optional peer-dependency warning string. Present when the plugin's
+   * package.json declared a @flowot/nx-pn-host peer with a version range
+   * that does not include the current host version.
+   */
+  peerWarning?: string
 }
 
 export class PluginLoader {
@@ -312,6 +321,168 @@ export class PluginLoader {
     }
   }
 
+  /**
+   * Scan a workspace `plugins/` directory and load every plugin found there.
+   *
+   * For each subdirectory that contains a `package.json`:
+   *   1. Extract id / version / manifest from package.json
+   *   2. Check peer dependencies against the current host version
+   *   3. Compile host.ts from the plugin path
+   *   4. Persist a zip to dataDir/plugins/
+   *   5. Register + activate via the standard loader pipeline
+   *
+   * Used by `startHost` when a workspace config declares plugins, and by
+   * `loadFromLink` for a single plugin directory.
+   */
+  async loadFromWorkspace(dir: string): Promise<LoadResult[]> {
+    let entries: string[]
+    try {
+      entries = await readdir(dir)
+    } catch {
+      return []
+    }
+    const results: LoadResult[] = []
+    for (const subdir of entries) {
+      const pkgPath = join(dir, subdir, 'package.json')
+      try {
+        await access(pkgPath)
+      } catch {
+        continue
+      }
+      try {
+        const r = await this.loadFromLink(join(dir, subdir))
+        results.push(r)
+      } catch (err) {
+        // Log and continue — workspace load is best-effort.
+        // eslint-disable-next-line no-console
+        console.warn(`[plugin-loader] workspace load failed for ${subdir}:`, (err as Error).message)
+      }
+    }
+    return results
+  }
+
+  /**
+   * Load a single plugin from a directory path (used by the `file:/link:` npm
+   * install path, or when a workspace config declares a single plugin path).
+   *
+   * Reads the plugin's `package.json` directly (no npm install needed), builds
+   * a minimal manifest if `api-audit` is absent, then compiles host.ts via esbuild,
+   * persists a zip to `dataDir/plugins/`, and activates via `load()`.
+   *
+   * Peer-dependency warnings are logged and included in the returned LoadResult
+   * but never block activation (npm peer semantics).
+   */
+  async loadFromLink(targetDir: string): Promise<LoadResult> {
+    // (1) Read package.json
+    let pkg: Record<string, unknown>
+    try {
+      const text = await readFile(join(targetDir, 'package.json'), 'utf-8')
+      pkg = JSON.parse(text) as Record<string, unknown>
+    } catch (err) {
+      throw new LoaderError('workspace/no-package-json', `cannot read package.json in ${targetDir}: ${(err as Error).message}`)
+    }
+
+    const id = typeof pkg.name === 'string' ? basename(targetDir) : pkg.name as string
+    if (!id) {
+      throw new LoaderError('workspace/no-id', 'package.json has no name field and directory cannot be used as id')
+    }
+
+    const version = typeof pkg.version === 'string' ? pkg.version : '0.0.0'
+
+    // (2) Peer dependency check: compare @flowot/nx-pn-host range against current version
+    let peerWarning: string | undefined
+    const peerDeps = pkg.peerDependencies as Record<string, unknown> | undefined
+    if (peerDeps && typeof peerDeps['@flowot/nx-pn-host'] === 'string') {
+      const range = peerDeps['@flowot/nx-pn-host'] as string
+      const hostVersion = getHostVersion()
+      if (!semverSatisfies(hostVersion, range)) {
+        peerWarning = `plugin "${id}" declares peerDependencies @flowot/nx-pn-host:${range} which does not include current host version ${hostVersion}`
+        // eslint-disable-next-line no-console
+        console.warn(`[plugin-loader] ${peerWarning}`)
+      }
+    }
+
+    // (3) Build a minimal manifest
+    const apiAudit = pkg['api-audit'] as { manifest?: Record<string, unknown>; browser?: string } | undefined
+    const rawManifest = apiAudit?.manifest as Record<string, unknown> | undefined
+    let manifest: Manifest
+    if (rawManifest && typeof rawManifest === 'object') {
+      const browser = typeof apiAudit?.browser === 'string' ? apiAudit.browser : undefined
+      const halves: { host: { entry: string }; browser?: { entry: string } } = {
+        host: { entry: resolveHostEntry(pkg) },
+      }
+      if (browser) halves.browser = { entry: browser }
+      try {
+        manifest = validateManifest({
+          schemaVersion: MANIFEST_VERSION,
+          ...rawManifest,
+          halves,
+        })
+      } catch (err) {
+        throw new LoaderError('workspace/invalid-manifest', (err as Error).message)
+      }
+    } else {
+      // No api-audit.manifest — build the strictest minimal manifest.
+      // The plugin MUST provide host.ts or index.js as the entry point.
+      const hostEntry = resolveHostEntry(pkg)
+      manifest = validateManifest({
+        schemaVersion: MANIFEST_VERSION,
+        id,
+        version,
+        title: typeof pkg.description === 'string' ? pkg.description : id,
+        halves: { host: { entry: hostEntry } },
+      })
+    }
+
+    if (!manifest.halves.host) {
+      throw new LoaderError('workspace/no-host-half', 'manifest has no host half')
+    }
+
+    // (4) Read the host source and compile via esbuild (same as zip path)
+    const hostEntryName = manifest.halves.host.entry
+    let hostSource: string
+    try {
+      hostSource = await readFile(join(targetDir, hostEntryName), 'utf-8')
+    } catch (err) {
+      throw new LoaderError('workspace/missing-host-entry', `host entry "${hostEntryName}" not found in ${targetDir}: ${(err as Error).message}`)
+    }
+
+    const osTmp = await realpath(tmpdir())
+    const tmpSource = join(osTmp, `ws-src-${createHash('sha256').update(hostSource).digest('hex').slice(0, 16)}.ts`)
+    await writeFile(tmpSource, hostSource)
+
+    const compiledDir = join(this.deps.dataDir, 'cache', 'compiled')
+    let compileResult: import('./host-compiler.js').CompileResult
+    try {
+      compileResult = await compileHostHalf({
+        entryPath: tmpSource,
+        outDir: compiledDir,
+        pluginId: id,
+      })
+    } catch (err) {
+      throw new LoaderError('workspace/compile-failed', (err as Error).message)
+    }
+
+    // (5) Build zip bytes from the compiled .mjs and manifest.json
+    const zipBytes = await buildZipForLink(targetDir, compileResult.code, manifest)
+
+    // (6) Persist zip and activate via load()
+    const uploadId = randomBytes(6).toString('hex')
+    const zipPath = join(this.deps.dataDir, 'plugins', `${uploadId}.zip`)
+    await mkdir(dirname(zipPath), { recursive: true })
+    await writeFile(zipPath, zipBytes)
+
+    const result = await this.load({ zipBytes })
+
+    // (7) Attach peerWarning and zipPath to result
+    if (peerWarning !== undefined) {
+      ;(result as { peerWarning?: string }).peerWarning = peerWarning
+    }
+    ;(result as { zipPath?: string }).zipPath = zipPath
+
+    return result
+  }
+
   /** Resolve a fresh tmp dir for tests that need one. */
   static async ensureTmpDataDir(): Promise<string> {
     // Resolve the OS temp path to its real (long) form — the short 8.3
@@ -422,4 +593,216 @@ function readZip(buf: Buffer): ZipEntry[] {
     p += 46 + fnameLen + extraLen + commentLen
   }
   return entries
+}
+
+// -------------------------------------------------------------- workspace helpers
+
+/**
+ * Get the current host version from package.json. Memoised so we don't
+ * re-read on every plugin load.
+ */
+let _hostVersion: string | undefined
+function getHostVersion(): string {
+  if (_hostVersion !== undefined) return _hostVersion
+  try {
+    const text = readFileSync(join(dirname(new URL(import.meta.url).pathname), '..', '..', 'package.json'), 'utf-8')
+    const pkg = JSON.parse(text) as { version?: string }
+    _hostVersion = pkg.version ?? '0.0.0'
+  } catch {
+    _hostVersion = '0.0.0'
+  }
+  return _hostVersion
+}
+
+/**
+ * Minimal semver satisfying check. Handles x.y.z, ^x.y.z, ~x.y.z, >=x.y.z,
+ * and ranges. Does NOT support advanced ranges (||, &&, -) — those fall
+ * through to false (mismatch), which is the safe default for a warning-only
+ * check.
+ */
+function semverSatisfies(version: string, range: string): boolean {
+  const clean = (v: string) => v.replace(/^[~^>=<*\s]+/, '').trim()
+  const rangeClean = range.trim()
+  const op = rangeClean.match(/^[~^>=<]+/)?.[0] ?? ''
+  const rangeVer = clean(rangeClean)
+  const [vmaj, vmin, vpat] = version.split('.').map(Number)
+  const [rmaj, rmin, rpat] = rangeVer.split('.').map(Number)
+  const vmajN = vmaj ?? 0
+  const vminN = vmin ?? 0
+  const vpatN = vpat ?? 0
+  const rmajN = rmaj ?? 0
+  const rminN = rmin ?? 0
+  const rpatN = rpat ?? 0
+
+  if (op === '^') {
+    return vmajN === rmajN && (vminN > rminN || (vminN === rminN && vpatN >= rpatN))
+  }
+  if (op === '~') {
+    return vmajN === rmajN && vminN === rminN && vpatN >= rpatN
+  }
+  if (op === '>=') {
+    return vmajN > rmajN || (vmajN === rmajN && vminN > rminN) || (vmajN === rmajN && vminN === rminN && vpatN >= rpatN)
+  }
+  if (op === '>') {
+    return vmajN > rmajN || (vmajN === rmajN && vminN > rminN) || (vmajN === rmajN && vminN === rminN && vpatN > rpatN)
+  }
+  if (op === '<=') {
+    return vmajN < rmajN || (vmajN === rmajN && vminN < rminN) || (vmajN === rmajN && vminN === rminN && vpatN <= rpatN)
+  }
+  if (op === '<') {
+    return vmajN < rmajN || (vmajN === rmajN && vminN < rminN) || (vmajN === rmajN && vminN === rminN && vpatN < rpatN)
+  }
+  if (op === '=') {
+    return version === clean(rangeClean)
+  }
+  // Bare version — exact match
+  if (!op) {
+    return version === rangeVer
+  }
+  return false
+}
+
+/** Resolve the host-half entry from a package.json object. */
+function resolveHostEntry(pkg: Record<string, unknown>): string {
+  if (typeof pkg.main === 'string' && pkg.main.length > 0) return pkg.main
+  const exportsField = pkg.exports
+  if (exportsField && typeof exportsField === 'object') {
+    const dot = (exportsField as Record<string, unknown>)['.']
+    if (typeof dot === 'string') return dot
+    if (dot && typeof dot === 'object') {
+      const def = (dot as Record<string, unknown>)['default']
+      if (typeof def === 'string' && def.length > 0) return def
+    }
+  }
+  return 'host.ts'
+}
+
+/**
+ * Build a zip byte array for a workspace-loaded plugin. The zip contains:
+ *   - manifest.json (the validated Manifest)
+ *   - <hostEntry>   (the compiled .mjs from esbuild)
+ */
+async function buildZipForLink(targetDir: string, compiledSource: string, manifest: Manifest): Promise<Uint8Array> {
+  const manifestJson = JSON.stringify(manifest, null, 2)
+  const hostEntryName = manifest.halves.host?.entry ?? 'host.mjs'
+
+  // Collect the entries to zip: manifest.json + compiled host half
+  const entries: Array<{ name: string; data: Uint8Array }> = [
+    { name: 'manifest.json', data: new TextEncoder().encode(manifestJson) },
+    { name: hostEntryName, data: new TextEncoder().encode(compiledSource) },
+  ]
+
+  // Zip format: STORED (no compression) for simplicity
+  const parts: Uint8Array[] = []
+  const offsets: number[] = []
+
+  for (const entry of entries) {
+    offsets.push(parts.reduce((s, p) => s + p.byteLength, 0))
+    parts.push(zipEncodeEntry(entry.name, entry.data, 0))
+  }
+
+  const dataSize = parts.reduce((s, p) => s + p.byteLength, 0)
+  const centralDirOffset = dataSize
+  const centralDirParts: Uint8Array[] = []
+  let cdOffset = 0
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i]!
+    const off = offsets[i]!
+    centralDirParts.push(zipCentralDirEntry(entry.name, entry.data.byteLength, crc32(entry.data), off))
+    cdOffset += centralDirParts[centralDirParts.length - 1]!.byteLength
+  }
+
+  const eocd = zipEocd(entries.length, cdOffset, centralDirOffset)
+  const all = [...parts, ...centralDirParts, eocd]
+  const totalLen = all.reduce((s, p) => s + p.byteLength, 0)
+  const out = new Uint8Array(totalLen)
+  let pos = 0
+  for (const p of all) {
+    out.set(p, pos)
+    pos += p.byteLength
+  }
+  return out
+}
+
+function zipEncodeEntry(name: string, data: Uint8Array, compressionMethod: number): Uint8Array {
+  const nameBytes = new TextEncoder().encode(name)
+  const header = new Uint8Array(30 + nameBytes.length)
+  const view = new DataView(header.buffer, header.byteOffset, header.byteLength)
+  view.setUint32(0, 0x04034b50, true)         // local file header signature
+  view.setUint16(4, 20, true)                 // version needed
+  view.setUint16(6, 0, true)                  // general purpose bit flag
+  view.setUint16(8, compressionMethod, true)  // compression method (0 = stored)
+  view.setUint16(10, 0, true)                 // last mod time
+  view.setUint16(12, 0, true)                 // last mod date
+  view.setUint32(14, crc32(data), true)       // crc-32
+  view.setUint32(18, data.byteLength, true)   // compressed size
+  view.setUint32(22, data.byteLength, true)   // uncompressed size
+  view.setUint16(24, 0, true)                 // (uncompressed size high bytes, already set above)
+  view.setUint16(26, nameBytes.length, true)  // file name length
+  view.setUint16(28, 0, true)                 // extra field length
+  header.set(nameBytes, 30)
+  const combined = new Uint8Array(header.length + data.byteLength)
+  combined.set(header, 0)
+  combined.set(data, header.length)
+  return combined
+}
+
+function zipCentralDirEntry(name: string, size: number, crc: number, localHeaderOffset: number): Uint8Array {
+  const nameBytes = new TextEncoder().encode(name)
+  const header = new Uint8Array(46 + nameBytes.length)
+  const view = new DataView(header.buffer, header.byteOffset, header.byteLength)
+  view.setUint32(0, 0x02014b50, true)             // signature
+  view.setUint16(4, 20, true)                      // version made by
+  view.setUint16(6, 20, true)                      // version needed
+  view.setUint16(8, 0, true)                       // flags
+  view.setUint16(10, 0, true)                      // compression method
+  view.setUint16(12, 0, true)                      // mtime
+  view.setUint16(14, 0, true)                      // mdate
+  view.setUint32(16, crc, true)                    // crc-32
+  view.setUint32(20, size, true)                   // compressed size
+  view.setUint32(24, size, true)                   // uncompressed size
+  view.setUint16(28, nameBytes.length, true)        // file name length
+  view.setUint16(30, 0, true)                      // extra field length
+  view.setUint16(32, 0, true)                      // file comment length
+  view.setUint16(34, 0, true)                      // disk number start
+  view.setUint16(36, 0, true)                      // internal file attributes
+  view.setUint32(38, 0, true)                      // external file attributes
+  view.setUint32(42, localHeaderOffset, true)       // relative offset of local header
+  header.set(nameBytes, 46)
+  return header
+}
+
+function zipEocd(numEntries: number, cdSize: number, cdOffset: number): Uint8Array {
+  const buf = new Uint8Array(22)
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+  view.setUint32(0, 0x06054b50, true)
+  view.setUint16(4, 0, true)
+  view.setUint16(6, 0, true)
+  view.setUint16(8, numEntries, true)
+  view.setUint16(10, numEntries, true)
+  view.setUint32(12, cdSize, true)
+  view.setUint32(16, cdOffset, true)
+  view.setUint16(20, 0, true)
+  return buf
+}
+
+/** CRC-32 table (zlib polynomial). */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256)
+  for (let i = 0; i < 256; i++) {
+    let c = i
+    for (let j = 0; j < 8; j++) {
+      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+    }
+    t[i] = c
+  }
+  return t
+})()
+
+function crc32(data: Uint8Array): number {
+  let crc = 0xffffffff
+  for (const b of data) {
+    crc = CRC_TABLE[(crc ^ b) & 0xff]! ^ (crc >>> 8)
+  }
+  return (crc ^ 0xffffffff) >>> 0
 }

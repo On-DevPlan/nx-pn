@@ -97,38 +97,56 @@ describe('renderTemplate', () => {
 })
 
 describe('scaffoldPlugin (end-to-end)', () => {
-  it('writes 8 files into a fresh dir and replaces {{vars}} (manifest.json is build-generated)', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'init-test-'))
-    try {
-      const result = await scaffoldPlugin({ name: 'demo-plugin', dir, force: false })
-      expect(result.files.length).toBe(8)
-      // manifest.json is NOT scaffolded — build-zip.mjs generates it from
-      // package.json (single source of truth).
-      await expect(readFile(join(dir, 'manifest.json'), 'utf-8')).rejects.toThrow()
-      const pkg = await readFile(join(dir, 'package.json'), 'utf-8')
-      expect(pkg).toContain('"name": "demo-plugin"')
-      expect(pkg).toContain('"id": "demo-plugin"')
-      expect(pkg).toContain('"dev": "node scripts/dev.mjs"')
-      const host = await readFile(join(dir, 'host.ts'), 'utf-8')
-      expect(host).toContain('demo-plugin')
-      const browser = await readFile(join(dir, 'browser.tsx'), 'utf-8')
-      expect(browser).toContain('DemoPlugin')
-      const stat2 = await stat(join(dir, 'scripts', 'build-zip.mjs'))
-      expect(stat2.isFile()).toBe(true)
-      const stat3 = await stat(join(dir, 'scripts', 'dev.mjs'))
-      expect(stat3.isFile()).toBe(true)
-      const dev = await readFile(join(dir, 'scripts', 'dev.mjs'), 'utf-8')
-      expect(dev).toContain('demo-plugin.zip')
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
-  })
+  it(
+    'writes the workspace structure (14 files) into a fresh dir and replaces {{vars}}',
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'init-test-'))
+      try {
+        const result = await scaffoldPlugin({ name: 'demo-plugin', dir, force: false })
+        // workspace template: 4 root files + 5 plugin subdir files = 9 files
+        expect(result.files).toHaveLength(9)
+
+        // manifest.json IS scaffolded (workspace template includes it)
+        const manifest = JSON.parse(await readFile(join(dir, 'plugins', 'demo-plugin', 'manifest.json'), 'utf-8'))
+        expect(manifest.id).toBe('demo-plugin')
+        expect(manifest.halves).toBeDefined()
+        expect(manifest.halves.host?.entry).toBeDefined()
+        expect(manifest.halves.browser?.entry).toBeDefined()
+
+        const pkg = await readFile(join(dir, 'package.json'), 'utf-8')
+        expect(pkg).toContain('"name": "demo-plugin"')
+        expect(pkg).toContain('"dev": "node scripts/dev.mjs"')
+
+        const host = await readFile(join(dir, 'plugins', 'demo-plugin', 'host.ts'), 'utf-8')
+        expect(host).toContain('demo-plugin')
+        const browser = await readFile(join(dir, 'plugins', 'demo-plugin', 'browser.tsx'), 'utf-8')
+        expect(browser).toContain('browserHalf') // template function name
+
+        const stat2 = await stat(join(dir, 'scripts', 'dev.mjs'))
+        expect(stat2.isFile()).toBe(true)
+        const stat3 = await stat(join(dir, 'scripts', 'build.mjs'))
+        expect(stat3.isFile()).toBe(true)
+        const dev = await readFile(join(dir, 'scripts', 'dev.mjs'), 'utf-8')
+        // dev.mjs is a generic script; check it contains the nx-pn binary reference
+        expect(dev).toContain('nx-pn.mjs')
+
+        // tsconfig.json at workspace root
+        const tsconfig = await readFile(join(dir, 'tsconfig.json'), 'utf-8')
+        expect(tsconfig).toContain('@flowot/plugin-*')
+        expect(tsconfig).toContain('plugins/*/src')
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    },
+  )
 
   it('refuses non-empty dir without --force', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'init-test-'))
     try {
       await scaffoldPlugin({ name: 'demo-plugin', dir, force: false })
-      await expect(scaffoldPlugin({ name: 'demo-plugin', dir, force: false })).rejects.toThrow(InitError)
+      await expect(scaffoldPlugin({ name: 'demo-plugin', dir, force: false })).rejects.toThrow(
+        InitError,
+      )
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -139,7 +157,7 @@ describe('scaffoldPlugin (end-to-end)', () => {
     try {
       await scaffoldPlugin({ name: 'demo-plugin', dir, force: false })
       const result = await scaffoldPlugin({ name: 'demo-plugin', dir, force: true })
-      expect(result.files.length).toBe(8)
+      expect(result.files).toHaveLength(9)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -148,7 +166,9 @@ describe('scaffoldPlugin (end-to-end)', () => {
   it('rejects invalid name before touching disk', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'init-test-'))
     try {
-      await expect(scaffoldPlugin({ name: 'BadName', dir, force: false })).rejects.toThrow(InitError)
+      await expect(scaffoldPlugin({ name: 'BadName', dir, force: false })).rejects.toThrow(
+        InitError,
+      )
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

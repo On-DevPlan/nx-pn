@@ -61,6 +61,18 @@ export interface CliOptions {
   pluginTarget?: string
   /** For `build <dir>` — plugin directory. */
   buildDir?: string
+  /**
+   * Explicit plugin paths to load at startup: `id:path` entries.
+   * Each entry is loaded via `loader.loadFromLink`.
+   * When provided, workspace config loading is disabled unless
+   * --workspace-plugins is also given.
+   */
+  plugins?: Record<string, string>
+  /**
+   * Whether to load plugins from a workspace config file.
+   * Default: true when running in a directory that has a config file.
+   */
+  loadWorkspacePlugins?: boolean
 }
 
 export class CliArgError extends Error {}
@@ -156,6 +168,25 @@ export function parseArgs(argv: string[]): CliOptions {
       }
       opts.auditQuery ??= {}
       opts.auditQuery.order = o
+      continue
+    }
+    if (arg === '--plugin' || arg.startsWith('--plugin=')) {
+      const entry = takeValue()
+      const colonIdx = entry.indexOf(':')
+      if (colonIdx < 0) {
+        throw new CliArgError(`--plugin must be in the form id:path (got "${entry}")`)
+      }
+      const id = entry.slice(0, colonIdx).trim()
+      const path = entry.slice(colonIdx + 1).trim()
+      if (!id || !path) {
+        throw new CliArgError(`--plugin id:path must not have empty parts (got "${entry}")`)
+      }
+      opts.plugins ??= {}
+      opts.plugins[id] = resolve(path)
+      continue
+    }
+    if (arg === '--no-workspace-plugins') {
+      opts.loadWorkspacePlugins = false
       continue
     }
     if (arg.startsWith('-')) {
@@ -280,6 +311,10 @@ Options:
   --port <n>            HTTP/WS port (default ${DEFAULT_PORT}; 0 = ephemeral)
   --data-dir <dir>      Data directory (default ~/.api-audit)
   --no-open             Do not open the browser automatically
+  --plugin <id:path>    Load a plugin from <path> with id <id> at startup
+                        (may be given multiple times; disables workspace config
+                        unless --workspace-plugins is also used)
+  --no-workspace-plugins  Disable automatic workspace plugin loading
   -h, --help            Show this help
 `)
 }
@@ -502,7 +537,18 @@ async function runUninstall(opts: CliOptions): Promise<void> {
 
 /** The default web-server command. */
 async function runServer(opts: CliOptions): Promise<void> {
-  const host: StartedHost = await startHost({ port: opts.port, dataDir: opts.dataDir })
+  const startOpts: Parameters<typeof startHost>[0] = {
+    port: opts.port,
+    dataDir: opts.dataDir,
+    cwd: process.cwd(),
+  }
+  if (opts.plugins && Object.keys(opts.plugins).length > 0) {
+    startOpts.plugins = opts.plugins
+  }
+  if (opts.loadWorkspacePlugins !== undefined) {
+    startOpts.loadWorkspacePlugins = opts.loadWorkspacePlugins
+  }
+  const host: StartedHost = await startHost(startOpts)
   // eslint-disable-next-line no-console
   console.log(`api-audit listening on http://localhost:${host.port} (data dir: ${host.dataDir})`)
 

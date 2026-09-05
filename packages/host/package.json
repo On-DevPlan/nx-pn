@@ -41,9 +41,11 @@
     "@flowot/nx-pn-storage": "workspace:^",
     "@flowot/nx-pn-storage-json": "workspace:^",
     "@flowot/nx-pn-storage-domain": "workspace:^",
+    "js-yaml": "^4.1.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.7.0",
     "@types/ws": "^8.5.0",
     "typescript": "5.6.3",

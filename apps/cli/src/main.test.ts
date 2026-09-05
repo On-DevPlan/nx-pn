@@ -245,9 +245,9 @@ describe('plugin list|show|stop|remove|uninstall', () => {
 
 describe('build <dir>', () => {
   it('sets buildDir to an absolute path', () => {
-    const opts = parseArgs(['build', 'plugins/echo'])
+    const opts = parseArgs(['build', 'plugins/my-plugin'])
     expect(opts.subcommand).toBe('build')
-    expect(opts.buildDir).toBe(resolve('plugins/echo'))
+    expect(opts.buildDir).toBe(resolve('plugins/my-plugin'))
   })
 
   it('requires a directory', () => {

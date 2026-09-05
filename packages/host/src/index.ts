@@ -40,6 +40,7 @@ import { auditSpec, type AuditSpec } from './domains/audit-domain.js'
 import { pluginsSpec } from './domains/plugins-domain.js'
 import { credentialsSpec, type CredentialsSpec } from './domains/credentials-domain.js'
 import { pluginNsSpec, PLUGIN_NS_TABLES } from './cordis/plugin-storage-service.js'
+import { loadWorkspaceConfig } from './server/workspace-config.js'
 
 export interface StartHostOptions {
   /** 0 = ephemeral port. */
@@ -50,6 +51,24 @@ export interface StartHostOptions {
   dataDir: string
   /** Whether to scan dataDir/plugins on boot. Default true. */
   restartFromDataDir?: boolean
+  /**
+   * Working directory for workspace config search.
+   * When set, the host looks for koishi.config.{yml,json} / nx-pn.config.{yml,json}
+   * in this directory and loads declared plugins at startup.
+   */
+  cwd?: string
+  /**
+   * Explicit plugin paths to load at startup (id → path map).
+   * Each entry is loaded via `loader.loadFromLink`.
+   * Takes precedence over workspace config when both are present.
+   */
+  plugins?: Record<string, string>
+  /**
+   * Whether to load workspace plugins from the config file.
+   * Default: true if a config file exists in `cwd`, false otherwise.
+   * Ignored when `cwd` is not set.
+   */
+  loadWorkspacePlugins?: boolean
 }
 
 export interface StartedHost {
@@ -464,6 +483,39 @@ export async function startHost(opts: StartHostOptions): Promise<StartedHost> {
       await restartNpmPlugins({ dataDir: opts.dataDir, ctx, lifecycle, pluginsDomain })
     } catch {
       // offline / broken spec — host still boots
+    }
+  }
+
+  // Workspace config plugins: load declared plugins from koishi.config.yml / nx-pn.config.json
+  // Opt-in via opts.loadWorkspacePlugins (default: load if a config file exists in cwd).
+  const effectiveCwd = opts.cwd ?? process.cwd()
+  const wsConfig = await loadWorkspaceConfig(effectiveCwd)
+  const doLoadFromConfig = opts.loadWorkspacePlugins ?? (wsConfig !== null)
+  if (wsConfig && doLoadFromConfig) {
+    // eslint-disable-next-line no-console
+    console.log(`[host] workspace config loaded from ${wsConfig.configPath} (${wsConfig.plugins.length} plugin(s))`)
+    for (const entry of wsConfig.plugins) {
+      try {
+        await loader.loadFromLink(entry.path)
+        // eslint-disable-next-line no-console
+        console.log(`[host] loaded workspace plugin ${entry.id} from ${entry.path}`)
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(`[host] failed to load workspace plugin ${entry.id}:`, (err as Error).message)
+      }
+    }
+  }
+  // Explicit opts.plugins takes precedence over config file
+  if (opts.plugins && Object.keys(opts.plugins).length > 0) {
+    for (const [id, path] of Object.entries(opts.plugins)) {
+      try {
+        await loader.loadFromLink(path)
+        // eslint-disable-next-line no-console
+        console.log(`[host] loaded plugin ${id} from ${path}`)
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(`[host] failed to load plugin ${id}:`, (err as Error).message)
+      }
     }
   }
 

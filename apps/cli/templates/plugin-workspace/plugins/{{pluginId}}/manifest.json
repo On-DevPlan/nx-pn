@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "{{pluginId}}",
+  "version": "0.0.1",
+  "title": "{{title}}",
+  "halves": {
+    "host": {
+      "entry": "host.js"
+    },
+    "browser": {
+      "entry": "browser.js"
+    }
+  }
+}

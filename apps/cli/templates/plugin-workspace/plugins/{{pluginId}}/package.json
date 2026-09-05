@@ -1,0 +1,13 @@
+{
+  "name": "{{pluginId}}",
+  "version": "0.0.1",
+  "private": true,
+  "peerDependencies": {
+    "@flowot/nx-pn-host": "^{{version}}"
+  },
+  "devDependencies": {
+    "@flowot/nx-pn-client": "^{{version}}",
+    "@types/react": "^18.3.5"
+  },
+  "dependencies": {}
+}

@@ -1,24 +1,21 @@
 /**
  * Hot-add E2E — the full plugin loop, live (spec §7, §9.2).
  *
- *   1. startHost on an ephemeral port
- *   2. build the REAL plugins/example-api zip in-memory (esbuild from
- *      the plugin source — host half + browser half + manifest)
- *   3. upload it over the REST pipeline (POST /api/plugins multipart)
- *   4. assert lifecycle registration + parsed manifest
- *   5. trigger the plugin's tool endpoint (cordis event) → assert an
- *      AuditRecord with initiator === 'example-api' lands in the ring
- *      buffer — plugin network IO goes through the core unified client
- *      and is attributed (spec §7.4)
- *   6. evaluate the compiled browser half with a fake ctx → assert its
- *      `ctx.pages.register` contract is honoured (path/title/pluginId)
- *   7. stop → fiber disposed, event listener gone; remove → registry
- *      entry gone
- *   8. re-upload (version-update simulation) → new pluginRunId, old
- *      entry cleaned up, tool still works
+ * Rewritten to build a minimal in-memory plugin (no external plugin source
+ * required) so it survives plugin directory deletions.
  *
- * This is the acceptance test for "core provides the unified Client,
- * plugin IO goes through it, hot-add works".
+ *   1. startHost on an ephemeral port
+ *   2. write a TINY plugin (host.js + browser.js + manifest) to a temp dir
+ *   3. zip it up using our in-process zip writer
+ *   4. upload it over the REST pipeline (POST /api/plugins multipart)
+ *   5. assert lifecycle registration + parsed manifest
+ *   6. trigger the plugin's tool endpoint (cordis event) → assert an
+ *      AuditRecord with initiator === 'tiny-hotadd' lands in the ring buffer
+ *   7. evaluate the compiled browser half with a fake ctx → assert its
+ *      `ctx.pages.register` contract is honoured (path/title/pluginId)
+ *   8. stop → fiber disposed, event listener gone; remove → registry entry gone
+ *   9. re-upload (version-update simulation) → new pluginRunId, old entry
+ *      cleaned up, tool still works
  */
 
 import { describe, it, expect, afterEach } from 'vitest'
@@ -27,19 +24,9 @@ import { mkdir, mkdtemp, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Buffer } from 'node:buffer'
-import { fileURLToPath } from 'node:url'
 import { createServer, type Server } from 'node:http'
 import { startHost, type StartedHost } from '../index.js'
 import { importCompiledModule } from '../plugins/host-compiler.js'
-
-const PLUGIN_DIR = fileURLToPath(new URL('../../../../plugins/example-api/', import.meta.url))
-// The compiled browser half imports `react`, `react/jsx-runtime`, and
-// `react-router-dom` as bare specifiers (spec §5.2.2 — they must NOT be
-// bundled, the app resolves them via its import map). To evaluate that
-// module in Node, the temp file must sit in a directory whose
-// node_modules walk-up finds the real React stack — `apps/web/` carries
-// them via pnpm hoisting, so we write the temp file under there.
-const EVAL_DIR = join(PLUGIN_DIR, '..', '..', 'apps', 'web', '.tmp-browser-half-eval')
 
 const handles: StartedHost[] = []
 const upstreams: Server[] = []
@@ -64,41 +51,12 @@ async function makeHost(): Promise<StartedHost> {
 async function makeEchoUpstream(): Promise<string> {
   const upstream = createServer((req, res) => {
     res.setHeader('content-type', 'application/json')
-    res.end(JSON.stringify({ echoed: req.url, via: 'example-api-e2e' }))
+    res.end(JSON.stringify({ echoed: req.url, via: 'tiny-hotadd-e2e' }))
   })
   await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve))
   upstreams.push(upstream)
   const port = (upstream.address() as { port: number }).port
   return `http://127.0.0.1:${port}`
-}
-
-/** Compile both halves of the real plugin source (mirrors
- *  plugins/example-api/scripts/build-zip.mjs). */
-async function compilePluginHalves(): Promise<{ hostJs: string; browserJs: string }> {
-  const hostJs = await build({
-    entryPoints: [join(PLUGIN_DIR, 'host.ts')],
-    bundle: true,
-    platform: 'node',
-    format: 'esm',
-    target: 'node22',
-    external: ['cordis'],
-    write: false,
-    logLevel: 'silent',
-  }).then((r) => r.outputFiles![0]!.text)
-
-  const browserJs = await build({
-    entryPoints: [join(PLUGIN_DIR, 'browser.tsx')],
-    bundle: true,
-    platform: 'browser',
-    format: 'esm',
-    target: 'es2022',
-    jsx: 'automatic',
-    external: ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client', 'cordis'],
-    write: false,
-    logLevel: 'silent',
-  }).then((r) => r.outputFiles![0]!.text)
-
-  return { hostJs, browserJs }
 }
 
 // CRC32 for the STORED zip writer.
@@ -153,26 +111,117 @@ function makeZip(parts: Array<[string, Buffer | string]>): Buffer {
   return Buffer.concat([localBuf, cdBuf, eocd])
 }
 
-async function buildExampleZip(): Promise<Buffer> {
-  const { hostJs, browserJs } = await compilePluginHalves()
-  const manifest = await readFileText('manifest.json')
-  return makeZip([
-    ['manifest.json', manifest],
-    ['host.js', hostJs],
-    ['browser.js', browserJs],
-  ])
-}
+/** Build a tiny in-memory plugin and return it as a zip Buffer.
+ *
+ * We write the plugin source to a real temp dir so esbuild can process it
+ * as a proper file entry point. The temp dir is discarded after the zip is
+ * assembled.
+ */
+async function buildTinyPluginZip(upstreamBase: string): Promise<Buffer> {
+  const osTmp = await realpath(tmpdir())
+  const srcDir = await mkdtemp(join(osTmp, 'tiny-plugin-src-'))
 
-function readFileText(name: string): Promise<string> {
-  return import('node:fs/promises').then((m) => m.readFile(join(PLUGIN_DIR, name), 'utf-8'))
+  try {
+    // Write raw plugin sources to temp files
+    const hostSrcPath = join(srcDir, 'host.ts')
+    const browserSrcPath = join(srcDir, 'browser.tsx')
+
+    await writeFile(
+      hostSrcPath,
+      [
+        `const plugin = function (ctx) {`,
+        `  ctx.on('tiny-hotadd/probe', async (payload) => {`,
+        `    const url = (payload && typeof payload.url === 'string')`,
+        `      ? payload.url`,
+        `      : '${upstreamBase}/default'`,
+        `    return await ctx.auditClient.get(url)`,
+        `  })`,
+        `}`,
+        `plugin.inject = ['auditClient']`,
+        `export default plugin`,
+      ].join('\n'),
+      'utf-8',
+    )
+
+    await writeFile(
+      browserSrcPath,
+      [
+        `const plugin = function (ctx) {`,
+        `  ctx.pages.register({`,
+        `    pluginId: 'tiny-hotadd',`,
+        `    path: '/tiny-hotadd',`,
+        `    title: 'Tiny HotAdd',`,
+        `    order: 300,`,
+        `  })`,
+        `}`,
+        `export default plugin`,
+      ].join('\n'),
+      'utf-8',
+    )
+
+    const manifest = JSON.stringify({
+      schemaVersion: 1,
+      id: 'tiny-hotadd',
+      version: '0.1.0',
+      title: 'Tiny HotAdd',
+      halves: {
+        host: { entry: 'host.js' },
+        browser: { entry: 'browser.js' },
+      },
+    })
+
+    const hostJs = await build({
+      entryPoints: [hostSrcPath],
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      target: 'node22',
+      external: ['cordis'],
+      outdir: srcDir,
+      write: true,
+      logLevel: 'silent',
+    }).then(() =>
+      import('node:fs/promises').then((m) => m.readFile(join(srcDir, 'host.js'), 'utf-8')),
+    )
+
+    const browserJs = await build({
+      entryPoints: [browserSrcPath],
+      bundle: true,
+      platform: 'browser',
+      format: 'esm',
+      target: 'es2022',
+      jsx: 'automatic',
+      external: ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client', 'cordis'],
+      outdir: srcDir,
+      write: true,
+      logLevel: 'silent',
+    }).then(() =>
+      import('node:fs/promises').then((m) => m.readFile(join(srcDir, 'browser.js'), 'utf-8')),
+    )
+
+    return makeZip([
+      ['manifest.json', manifest],
+      ['host.js', hostJs],
+      ['browser.js', browserJs],
+    ])
+  } finally {
+    await rm(srcDir, { recursive: true, force: true })
+  }
 }
 
 /** Upload a zip over the real REST pipeline; returns the 201 payload. */
-async function uploadViaRest(host: StartedHost, zip: Buffer): Promise<{ id: string; pluginRunId: string; manifest: { id: string; halves: { browser?: { entry: string } } } }> {
-  const boundary = '----api-audit-hotadd-boundary'
+async function uploadViaRest(
+  host: StartedHost,
+  zip: Buffer,
+): Promise<{
+  id: string
+  pluginRunId: string
+  manifest: { id: string; halves: { browser?: { entry: string } } }
+}> {
+  const boundary = '----tiny-hotadd-boundary'
   const body = Buffer.concat([
     Buffer.from(`--${boundary}\r\n`),
-    Buffer.from('Content-Disposition: form-data; name="zip"; filename="example-api.zip"\r\n'),
+    Buffer.from('Content-Disposition: form-data; name="zip"; filename="tiny-hotadd.zip"\r\n'),
     Buffer.from('Content-Type: application/zip\r\n\r\n'),
     zip,
     Buffer.from(`\r\n--${boundary}--\r\n`),
@@ -182,14 +231,26 @@ async function uploadViaRest(host: StartedHost, zip: Buffer): Promise<{ id: stri
     headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
     body,
   })
-  const json = (await res.json()) as { ok: boolean; data: { id: string; pluginRunId: string; manifest: { id: string; halves: { browser?: { entry: string } } } } }
+  const text = await res.text()
+  let json: { ok: boolean; data?: { id: string; pluginRunId: string; manifest: { id: string; halves: { browser?: { entry: string } } } }; error?: { code: string; message: string } }
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new Error(`Server returned non-JSON (${res.status}): ${text.slice(0, 500)}`)
+  }
+  if (!json.ok) {
+    throw new Error(`Server rejected upload: ${json.error?.code} — ${json.error?.message}`)
+  }
   expect(res.status).toBe(201)
-  expect(json.ok).toBe(true)
-  return json.data
+  return json.data!
 }
 
 /** Poll until `pred` is true or the timeout elapses. */
-async function waitFor<T>(pred: () => T | undefined, timeoutMs = 5000, what = 'condition'): Promise<T> {
+async function waitFor<T>(
+  pred: () => T | undefined,
+  timeoutMs = 5000,
+  what = 'condition',
+): Promise<T> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const hit = pred()
@@ -199,93 +260,159 @@ async function waitFor<T>(pred: () => T | undefined, timeoutMs = 5000, what = 'c
   throw new Error(`timed out waiting for ${what}`)
 }
 
-describe('hot-add e2e — example-api plugin (spec §7 / §9.2)', () => {
-  it('uploads the real plugin zip, attributes its IO, proves the browser-half contract, stops, and re-uploads', async () => {
-    const host = await makeHost()
-    const upstreamBase = await makeEchoUpstream()
-    const zip = await buildExampleZip()
+// Directory under apps/web/.tmp-browser-half-eval for browser-half evaluation.
+// It needs to be under a directory whose node_modules walk-up finds react.
+const EVAL_PARENT = join(process.cwd(), 'apps', 'web', '.tmp-browser-half-eval')
 
-    // ── 1. hot-add over REST ────────────────────────────────────────
-    const first = await uploadViaRest(host, zip)
-    expect(first.id).toBe('example-api')
-    expect(first.pluginRunId).toMatch(/^run-/)
+describe('hot-add e2e — in-memory tiny plugin (spec §7 / §9.2)', () => {
+  it(
+    'uploads the in-memory plugin zip, attributes its IO, proves the browser-half contract, stops, and re-uploads',
+    async () => {
+      const host = await makeHost()
+      const upstreamBase = await makeEchoUpstream()
+      const zip = await buildTinyPluginZip(upstreamBase)
 
-    // Lifecycle registry entry + parsed manifest.
-    const entry = host.lifecycle.byRunId(first.pluginRunId)
-    expect(entry).toBeDefined()
-    expect(entry!.id).toBe('example-api')
-    expect(entry!.manifest.id).toBe('example-api')
-    expect(entry!.manifest.halves.host?.entry).toBe('host.js')
-    expect(entry!.manifest.halves.browser?.entry).toBe('browser.js')
-    expect(entry!.fiber.state).toBe(2) // FiberState.ACTIVE
+      // ── 1. hot-add over REST ────────────────────────────────────────
+      const first = await uploadViaRest(host, zip)
+      expect(first.id).toBe('tiny-hotadd')
+      expect(first.pluginRunId).toMatch(/^run-/)
 
-    // ── 2. trigger the plugin tool → attributed audit record ───────
-    const toolUrl = `${upstreamBase}/hot-add?proof=1`
-    host.ctx.emit('example-api/fetch', { url: toolUrl })
+      // Lifecycle registry entry + parsed manifest.
+      const entry = host.lifecycle.byRunId(first.pluginRunId)
+      expect(entry).toBeDefined()
+      expect(entry!.id).toBe('tiny-hotadd')
+      expect(entry!.manifest.id).toBe('tiny-hotadd')
+      expect(entry!.manifest.halves.host?.entry).toBe('host.js')
+      expect(entry!.manifest.halves.browser?.entry).toBe('browser.js')
+      expect(entry!.fiber.state).toBe(2) // FiberState.ACTIVE
 
-    const record = await waitFor(() => {
-      return host.buffer
-        .snapshot()
-        .find((r) => r.initiator === 'example-api' && r.url === toolUrl)
-    }, 5000, 'attributed audit record')
+      // ── 2. trigger the plugin tool → attributed audit record ───────
+      const toolUrl = `${upstreamBase}/hot-add?proof=1`
+      host.ctx.emit('tiny-hotadd/probe', { url: toolUrl })
 
-    expect(record.status).toBe(200)
-    expect(record.method).toBe('GET')
-    expect(record.resBody.json).toEqual({ echoed: '/hot-add?proof=1', via: 'example-api-e2e' })
+      const record = await waitFor(
+        () =>
+          host.buffer.snapshot().find((r) => r.initiator === 'tiny-hotadd' && r.url === toolUrl),
+        5000,
+        'attributed audit record',
+      )
 
-    // ── 3. browser half: pages.register contract honoured ──────────
-    const { browserJs } = await compilePluginHalves()
-    await mkdir(EVAL_DIR, { recursive: true })
-    const evalDir = await mkdtemp(join(EVAL_DIR, 'run-'))
-    const tmpMod = join(evalDir, 'browser-half.mjs')
-    await writeFile(tmpMod, browserJs, 'utf-8')
-    const mod = await importCompiledModule(tmpMod)
-    const registered: Array<{ pluginId?: string; path?: string; title?: string; order?: number }> = []
-    const fakeCtx = {
-      logger: { info: () => {} },
-      pages: { register: (e: { pluginId?: string; path?: string; title?: string; order?: number }): void => { registered.push(e) } },
-    }
-    ;(mod.default as (ctx: unknown) => void)(fakeCtx)
-    expect(registered).toHaveLength(1)
-    expect(registered[0]).toMatchObject({
-      pluginId: 'example-api',
-      path: '/example-api',
-      title: '示例 API',
-      order: 200,
-    })
-    await rm(evalDir, { recursive: true, force: true })
+      expect(record.status).toBe(200)
+      expect(record.method).toBe('GET')
+      expect(record.resBody.json).toEqual({ echoed: '/hot-add?proof=1', via: 'tiny-hotadd-e2e' })
 
-    // ── 4. stop → fiber disposed, tool dead; remove → gone ─────────
-    const stopRes = await fetch(`http://127.0.0.1:${host.port}/api/plugins/${first.pluginRunId}/stop`, { method: 'POST' })
-    expect(stopRes.status).toBe(200)
-    const stoppedEntry = host.lifecycle.byRunId(first.pluginRunId)
-    expect(stoppedEntry).toBeDefined() // stop keeps the entry (lifecycle semantics)
-    expect(stoppedEntry!.fiber.state).toBe(4) // FiberState.DISPOSED
+      // ── 3. browser half: pages.register contract honoured ──────────
+      // Build browser.js to a temp dir, then evaluate it
+      const osTmp = await realpath(tmpdir())
+      const browserSrcDir = await mkdtemp(join(osTmp, 'browser-half-src-'))
+      await writeFile(
+        join(browserSrcDir, 'browser.tsx'),
+        [
+          `const plugin = function (ctx) {`,
+          `  ctx.pages.register({`,
+          `    pluginId: 'tiny-hotadd',`,
+          `    path: '/tiny-hotadd',`,
+          `    title: 'Tiny HotAdd',`,
+          `    order: 300,`,
+          `  })`,
+          `}`,
+          `export default plugin`,
+        ].join('\n'),
+        'utf-8',
+      )
+      const browserOutDir = await mkdtemp(join(browserSrcDir, 'out-'))
+      await build({
+        entryPoints: [join(browserSrcDir, 'browser.tsx')],
+        bundle: true,
+        platform: 'browser',
+        format: 'esm',
+        target: 'es2022',
+        jsx: 'automatic',
+        external: ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client', 'cordis'],
+        outdir: browserOutDir,
+        write: true,
+        logLevel: 'silent',
+      })
 
-    const countAfterStop = host.buffer.snapshot().filter((r) => r.url === toolUrl).length
-    host.ctx.emit('example-api/fetch', { url: `${toolUrl}&dead=1` })
-    await new Promise((resolve) => setTimeout(resolve, 150))
-    // The disposed fiber's listener is gone — no new attributed records.
-    expect(host.buffer.snapshot().filter((r) => r.url.startsWith(toolUrl)).length).toBe(countAfterStop)
+      await mkdir(EVAL_PARENT, { recursive: true })
+      const evalDir = await mkdtemp(join(EVAL_PARENT, 'run-'))
+      const tmpMod = join(evalDir, 'browser-half.mjs')
+      await writeFile(tmpMod, await import('node:fs/promises').then((m) => m.readFile(join(browserOutDir, 'browser.js'), 'utf-8')), 'utf-8')
+      const mod = await importCompiledModule(tmpMod)
+      const registered: Array<{
+        pluginId?: string
+        path?: string
+        title?: string
+        order?: number
+      }> = []
+      const fakeCtx = {
+        logger: { info: () => {} },
+        pages: {
+          register: (e: {
+            pluginId?: string
+            path?: string
+            title?: string
+            order?: number
+          }): void => {
+            registered.push(e)
+          },
+        },
+      }
+      ;(mod.default as (ctx: unknown) => void)(fakeCtx)
+      expect(registered).toHaveLength(1)
+      expect(registered[0]).toMatchObject({
+        pluginId: 'tiny-hotadd',
+        path: '/tiny-hotadd',
+        title: 'Tiny HotAdd',
+        order: 300,
+      })
+      await rm(evalDir, { recursive: true, force: true })
+      await rm(browserSrcDir, { recursive: true, force: true })
 
-    const removeRes = await fetch(`http://127.0.0.1:${host.port}/api/plugins/${first.pluginRunId}/remove`, { method: 'POST' })
-    expect(removeRes.status).toBe(200)
-    expect(host.lifecycle.byRunId(first.pluginRunId)).toBeUndefined()
-    expect(host.lifecycle.list()).toHaveLength(0)
+      // ── 4. stop → fiber disposed, tool dead; remove → gone ─────────
+      const stopRes = await fetch(
+        `http://127.0.0.1:${host.port}/api/plugins/${first.pluginRunId}/stop`,
+        { method: 'POST' },
+      )
+      expect(stopRes.status).toBe(200)
+      const stoppedEntry = host.lifecycle.byRunId(first.pluginRunId)
+      expect(stoppedEntry).toBeDefined() // stop keeps the entry (lifecycle semantics)
+      expect(stoppedEntry!.fiber.state).toBe(4) // FiberState.DISPOSED
 
-    // ── 5. re-upload (version update) → fresh run id, tool alive ───
-    const second = await uploadViaRest(host, zip)
-    expect(second.pluginRunId).not.toBe(first.pluginRunId)
-    expect(host.lifecycle.list()).toHaveLength(1)
-    expect(host.lifecycle.byRunId(second.pluginRunId)).toBeDefined()
+      const countAfterStop = host.buffer.snapshot().filter((r) => r.url === toolUrl).length
+      host.ctx.emit('tiny-hotadd/probe', { url: `${toolUrl}&dead=1` })
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      // The disposed fiber's listener is gone — no new attributed records.
+      expect(
+        host.buffer.snapshot().filter((r) => r.url.startsWith(toolUrl)).length,
+      ).toBe(countAfterStop)
 
-    const toolUrl2 = `${upstreamBase}/hot-add-v2`
-    host.ctx.emit('example-api/fetch', { url: toolUrl2 })
-    const record2 = await waitFor(() => {
-      return host.buffer
-        .snapshot()
-        .find((r) => r.initiator === 'example-api' && r.url === toolUrl2)
-    }, 5000, 'attributed record after re-upload')
-    expect(record2.status).toBe(200)
-  }, 20000)
+      const removeRes = await fetch(
+        `http://127.0.0.1:${host.port}/api/plugins/${first.pluginRunId}/remove`,
+        { method: 'POST' },
+      )
+      expect(removeRes.status).toBe(200)
+      expect(host.lifecycle.byRunId(first.pluginRunId)).toBeUndefined()
+      expect(host.lifecycle.list()).toHaveLength(0)
+
+      // ── 5. re-upload (version update) → fresh run id, tool alive ───
+      const second = await uploadViaRest(host, zip)
+      expect(second.pluginRunId).not.toBe(first.pluginRunId)
+      expect(host.lifecycle.list()).toHaveLength(1)
+      expect(host.lifecycle.byRunId(second.pluginRunId)).toBeDefined()
+
+      const toolUrl2 = `${upstreamBase}/hot-add-v2`
+      host.ctx.emit('tiny-hotadd/probe', { url: toolUrl2 })
+      const record2 = await waitFor(
+        () =>
+          host.buffer
+            .snapshot()
+            .find((r) => r.initiator === 'tiny-hotadd' && r.url === toolUrl2),
+        5000,
+        'attributed record after re-upload',
+      )
+      expect(record2.status).toBe(200)
+    },
+    20000,
+  )
 })
