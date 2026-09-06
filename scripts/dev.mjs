@@ -19,7 +19,7 @@
 
 import { spawn, execFile } from 'node:child_process'
 import { watch } from 'node:fs'
-import { readFile, mkdir } from 'node:fs/promises'
+import { readFile, mkdir, readdir } from 'node:fs/promises'
 import { dirname, join, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -28,6 +28,12 @@ const __root = dirname(dirname(fileURLToPath(import.meta.url)))
 // Built nx-pn binary
 const localBase = join(__root, 'apps', 'cli', 'bin', 'nx-pn.mjs')
 // Monorepo-level build script
+
+// Detect if dev was called from a plugin subdir (plugins/<name>/).
+// If so, only load that plugin — avoids loading the whole workspace
+// and prevents enco from starting when developing kvlogin (and vice versa).
+const __cwd = process.cwd()
+const __focusPlugin = (__cwd.match(/[/\\]plugins[/\\]([^/\\]+)[/\\]?$/) || [])[1] || null
 const buildScript = join(__root, 'build.mjs')
 
 const PORT = process.env.NX_PN_PORT || 4560
@@ -129,6 +135,8 @@ function startWatcher() {
     // Extract pluginId from path (first segment under plugins/)
     const pluginId = rel.split('/')[0]
     if (!pluginId || pluginId === rel) return
+    // Focus mode: ignore changes to other plugins.
+    if (__focusPlugin && pluginId !== __focusPlugin) return
     clearTimeout(timer)
     timer = setTimeout(() => {
       console.log(`\n[hmr] change: ${rel}`)
@@ -155,12 +163,20 @@ async function main() {
     await mkdir(DATA_DIR, { recursive: true })
 
     console.log('[dev] data-dir: ' + DATA_DIR)
-    const child = spawn('node', [
+    if (__focusPlugin) console.log('[dev] focus: ' + __focusPlugin + ' (only this plugin will be loaded)')
+    const spawnArgs = [
       localBase,
       '--no-open',
       '--port', String(PORT),
       '--data-dir', DATA_DIR,
-    ], {
+    ]
+    if (__focusPlugin) {
+      // Disable workspace-config loading and only load this plugin. Also
+      // skip data-dir replay so unrelated plugins uploaded earlier never
+      // come back — focus means exactly one plugin on the host.
+      spawnArgs.push('--no-workspace-plugins', '--no-restart', '--plugin', __focusPlugin + ':' + join(__root, 'plugins', __focusPlugin))
+    }
+    const child = spawn('node', spawnArgs, {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
@@ -179,6 +195,29 @@ async function main() {
   }
 
   console.log('[dev] done — connect to ' + HOST + ' in your browser')
+
+  // Startup upload: build + hot-upload every workspace plugin once the
+  // host is up. The host replays previously-uploaded zips from the data
+  // dir on boot, but that replay is best-effort and a stale zip (e.g. a
+  // pre-browser-half build) can leave a plugin without its browser half
+  // — its pages then 404 in the shell. Re-uploading the current source
+  // guarantees every plugin comes back with a complete manifest (host +
+  // browser), so `npm run dev` is a closed loop: one command, working
+  // plugin pages.
+  const pluginsRoot = join(__root, 'plugins')
+  const pluginDirs = await readdir(pluginsRoot).catch(() => [])
+  for (const dir of pluginDirs) {
+    // Focus mode (dev from plugins/<id>/): only this plugin is loaded.
+    if (__focusPlugin && dir !== __focusPlugin) continue
+    const pkgPath = join(pluginsRoot, dir, 'package.json')
+    try {
+      await readFile(pkgPath)
+    } catch {
+      continue // not a plugin package
+    }
+    console.log(`[dev] startup upload: ${dir}`)
+    await rebuildAndUpload(dir)
+  }
 
   // Start HMR watcher
   startWatcher()

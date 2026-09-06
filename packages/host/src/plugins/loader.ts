@@ -14,7 +14,7 @@
  *     → on failure: catch → lifecycle.remove (fiber dispose + ns close) → throw
  */
 
-import { mkdir, writeFile, rm, readFile, readdir, realpath, access } from 'node:fs/promises'
+import { mkdir, writeFile, rm, readFile, readdir, realpath, access, stat } from 'node:fs/promises'
 import { dirname, join, basename } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
@@ -295,18 +295,46 @@ export class PluginLoader {
     } catch {
       return []
     }
+    // Pick the newest zip per manifest id so stale builds never shadow
+    // the latest one: the upload ledger is a write-only pile of zips
+    // (hashed names), and replaying every zip in readdir order lets an
+    // old build (e.g. a pre-browser-half zip) win the per-id dedup —
+    // the plugin then comes back without its browser half and the web
+    // shell skips it (its pages 404).
+    const zips = entries.filter((name) => name.endsWith('.zip'))
+    const newestByManifestId = new Map<string, { zipPath: string; mtimeMs: number }>()
+    for (const name of zips) {
+      const zipPath = join(pluginsDir, name)
+      let id: string | undefined
+      try {
+        const { manifest } = await extractManifestAndEntryFromZipFile(zipPath)
+        id = (manifest as { id?: unknown }).id as string | undefined
+      } catch {
+        // Bad zip — skip here; load() below would log it anyway.
+        continue
+      }
+      if (typeof id !== 'string' || id.length === 0) continue
+      let mtimeMs: number
+      try {
+        mtimeMs = (await stat(zipPath)).mtimeMs
+      } catch {
+        continue
+      }
+      const existing = newestByManifestId.get(id)
+      if (!existing || mtimeMs > existing.mtimeMs) {
+        newestByManifestId.set(id, { zipPath, mtimeMs })
+      }
+    }
     const results: LoadResult[] = []
-    for (const name of entries) {
-      if (!name.endsWith('.zip')) continue
-      const path = join(pluginsDir, name)
-      const bytes = await readFile(path)
+    for (const { zipPath } of newestByManifestId.values()) {
+      const bytes = await readFile(zipPath)
       try {
         const r = await this.load({ zipBytes: bytes })
         results.push(r)
       } catch (err) {
         // Log and continue — restart is best-effort.
         // eslint-disable-next-line no-console
-        console.warn(`[plugin-loader] restart failed for ${name}:`, (err as Error).message)
+        console.warn(`[plugin-loader] restart failed for ${basename(zipPath)}:`, (err as Error).message)
       }
     }
     return results

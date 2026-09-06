@@ -73,6 +73,14 @@ export interface CliOptions {
    * Default: true when running in a directory that has a config file.
    */
   loadWorkspacePlugins?: boolean
+
+  /**
+   * Whether to replay previously-uploaded plugins from the data dir.
+   * Default: true. Set false (`--no-restart`) for a clean host — used by
+   * the dev script's focus mode so unrelated replayed plugins never
+   * shadow the plugin being developed.
+   */
+  restartFromDataDir?: boolean
 }
 
 export class CliArgError extends Error {}
@@ -187,6 +195,10 @@ export function parseArgs(argv: string[]): CliOptions {
     }
     if (arg === '--no-workspace-plugins') {
       opts.loadWorkspacePlugins = false
+      continue
+    }
+    if (arg === '--no-restart') {
+      opts.restartFromDataDir = false
       continue
     }
     if (arg.startsWith('-')) {
@@ -585,6 +597,9 @@ async function runServer(opts: CliOptions): Promise<void> {
   }
   if (opts.loadWorkspacePlugins !== undefined) {
     startOpts.loadWorkspacePlugins = opts.loadWorkspacePlugins
+  }
+  if (opts.restartFromDataDir !== undefined) {
+    startOpts.restartFromDataDir = opts.restartFromDataDir
   }
   const host: StartedHost = await startHost(startOpts)
   // eslint-disable-next-line no-console
