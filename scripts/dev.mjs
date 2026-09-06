@@ -29,11 +29,19 @@ const __root = dirname(dirname(fileURLToPath(import.meta.url)))
 const localBase = join(__root, 'apps', 'cli', 'bin', 'nx-pn.mjs')
 // Monorepo-level build script
 
-// Detect if dev was called from a plugin subdir (plugins/<name>/).
-// If so, only load that plugin — avoids loading the whole workspace
-// and prevents enco from starting when developing kvlogin (and vice versa).
+// Detect the focus plugin set. Three modes, in priority order:
+//   1. NX_PN_FOCUS=kvlogin,enco  — explicit multi-plugin focus (shared
+//      host with exactly these plugins, comma-separated)
+//   2. called from plugins/<name>/ — focus that single plugin
+//   3. neither — full workspace (every plugin under plugins/)
 const __cwd = process.cwd()
-const __focusPlugin = (__cwd.match(/[/\\]plugins[/\\]([^/\\]+)[/\\]?$/) || [])[1] || null
+const __cwdPlugin = (__cwd.match(/[/\\]plugins[/\\]([^/\\]+)[/\\]?$/) || [])[1] || null
+const __focusPlugins = process.env.NX_PN_FOCUS
+  ? process.env.NX_PN_FOCUS.split(',').map((s) => s.trim()).filter(Boolean)
+  : __cwdPlugin
+    ? [__cwdPlugin]
+    : null
+const __isFocus = __focusPlugins !== null
 const buildScript = join(__root, 'build.mjs')
 
 const PORT = process.env.NX_PN_PORT || 4560
@@ -136,7 +144,7 @@ function startWatcher() {
     const pluginId = rel.split('/')[0]
     if (!pluginId || pluginId === rel) return
     // Focus mode: ignore changes to other plugins.
-    if (__focusPlugin && pluginId !== __focusPlugin) return
+    if (__isFocus && !__focusPlugins.includes(pluginId)) return
     clearTimeout(timer)
     timer = setTimeout(() => {
       console.log(`\n[hmr] change: ${rel}`)
@@ -163,18 +171,21 @@ async function main() {
     await mkdir(DATA_DIR, { recursive: true })
 
     console.log('[dev] data-dir: ' + DATA_DIR)
-    if (__focusPlugin) console.log('[dev] focus: ' + __focusPlugin + ' (only this plugin will be loaded)')
+    if (__isFocus) console.log('[dev] focus: ' + __focusPlugins.join(', ') + ' (only these plugins will be loaded)')
     const spawnArgs = [
       localBase,
       '--no-open',
       '--port', String(PORT),
       '--data-dir', DATA_DIR,
     ]
-    if (__focusPlugin) {
-      // Disable workspace-config loading and only load this plugin. Also
-      // skip data-dir replay so unrelated plugins uploaded earlier never
-      // come back — focus means exactly one plugin on the host.
-      spawnArgs.push('--no-workspace-plugins', '--no-restart', '--plugin', __focusPlugin + ':' + join(__root, 'plugins', __focusPlugin))
+    if (__isFocus) {
+      // Disable workspace-config loading and only load the focused
+      // plugins. Also skip data-dir replay so unrelated plugins uploaded
+      // earlier never come back — focus means exactly the named plugins.
+      spawnArgs.push('--no-workspace-plugins', '--no-restart')
+      for (const id of __focusPlugins) {
+        spawnArgs.push('--plugin', id + ':' + join(__root, 'plugins', id))
+      }
     }
     const child = spawn('node', spawnArgs, {
       detached: true,
@@ -207,8 +218,8 @@ async function main() {
   const pluginsRoot = join(__root, 'plugins')
   const pluginDirs = await readdir(pluginsRoot).catch(() => [])
   for (const dir of pluginDirs) {
-    // Focus mode (dev from plugins/<id>/): only this plugin is loaded.
-    if (__focusPlugin && dir !== __focusPlugin) continue
+    // Focus mode: only the focused plugins are uploaded.
+    if (__isFocus && !__focusPlugins.includes(dir)) continue
     const pkgPath = join(pluginsRoot, dir, 'package.json')
     try {
       await readFile(pkgPath)
