@@ -1,20 +1,24 @@
 /**
- * dev.mjs — Monorepo root: spawn embedded base + watch + hot-reload all plugins.
+ * dev.mjs — Monorepo root: spawn embedded base + watch + hot-reload plugins.
  *
- * Usage (from monorepo root):
- *   node scripts/dev.mjs
- *
- * Usage (from plugins/<id>/):
- *   npm run dev   (which calls node ../../scripts/dev.mjs)
+ * Usage:
+ *   node scripts/dev.mjs                      standalone: own host, all plugins
+ *   cd plugins/<id> && npm run dev            standalone: own host, this plugin only
+ *   cd plugins/<id> && npm run dev -- --shared   shared: join the shared host on :4560
+ *   NX_PN_SHARED=1 cd plugins/<id> && npm run dev   (same, env form)
  *
  * This script:
  *   1. Resolves __root = monorepo root (scripts/ is at monorepo root level)
  *   2. localBase = apps/cli/bin/nx-pn.mjs (the built binary)
  *   3. dataDir   = .data/ under monorepo root
- *   4. Probes :4560; if down, spawns detached base process
- *   5. Waits up to 60s for base to become ready
+ *   4. STANDALONE (default): always spawns its own host. If the port is
+ *      taken by another host it fails loudly with guidance — it never
+ *      silently shares or moves ports.
+ *   5. SHARED (--shared / NX_PN_SHARED=1): probes the port; if a host is
+ *      already up it joins it (uploads this plugin), otherwise it spawns
+ *      a fresh host that becomes the shared base for other dev terminals.
  *   6. Watches plugins/ for .ts/.tsx/.json changes
- *   7. On change: runs build.mjs <pluginId> → hot-upload zip to running base
+ *   7. On change: runs build.mjs <pluginId> -> hot-upload zip to running base
  */
 
 import { spawn, execFile } from 'node:child_process'
@@ -28,21 +32,16 @@ const __root = dirname(dirname(fileURLToPath(import.meta.url)))
 // Built nx-pn binary
 const localBase = join(__root, 'apps', 'cli', 'bin', 'nx-pn.mjs')
 // Monorepo-level build script
-
-// Detect the focus plugin set. Three modes, in priority order:
-//   1. NX_PN_FOCUS=kvlogin,enco  — explicit multi-plugin focus (shared
-//      host with exactly these plugins, comma-separated)
-//   2. called from plugins/<name>/ — focus that single plugin
-//   3. neither — full workspace (every plugin under plugins/)
-const __cwd = process.cwd()
-const __cwdPlugin = (__cwd.match(/[/\\]plugins[/\\]([^/\\]+)[/\\]?$/) || [])[1] || null
-const __focusPlugins = process.env.NX_PN_FOCUS
-  ? process.env.NX_PN_FOCUS.split(',').map((s) => s.trim()).filter(Boolean)
-  : __cwdPlugin
-    ? [__cwdPlugin]
-    : null
-const __isFocus = __focusPlugins !== null
 const buildScript = join(__root, 'build.mjs')
+
+// Focus plugin: when dev runs from plugins/<name>/, only that plugin is
+// loaded (a standalone host is created for it, or it is the plugin this
+// dev terminal owns when joining a shared host). No focus = full workspace.
+const __cwd = process.cwd()
+const __focusPlugin = (__cwd.match(/[/\\]plugins[/\\]([^/\\]+)[/\\]?$/) || [])[1] || null
+
+// Shared mode: join (or create) the shared host instead of an isolated one.
+const __shared = process.env.NX_PN_SHARED === '1' || process.argv.includes('--shared')
 
 const PORT = process.env.NX_PN_PORT || 4560
 const DATA_DIR = process.env.NX_PN_DATA_DIR || join(__root, '.data')
@@ -144,7 +143,7 @@ function startWatcher() {
     const pluginId = rel.split('/')[0]
     if (!pluginId || pluginId === rel) return
     // Focus mode: ignore changes to other plugins.
-    if (__isFocus && !__focusPlugins.includes(pluginId)) return
+    if (__focusPlugin && pluginId !== __focusPlugin) return
     clearTimeout(timer)
     timer = setTimeout(() => {
       console.log(`\n[hmr] change: ${rel}`)
@@ -156,70 +155,85 @@ function startWatcher() {
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
+async function spawnHost() {
+  // Ensure .data dir exists
+  await mkdir(DATA_DIR, { recursive: true })
+
+  console.log('[dev] data-dir: ' + DATA_DIR)
+  if (__focusPlugin) console.log('[dev] focus: ' + __focusPlugin + ' (only this plugin will be loaded)')
+  const spawnArgs = [
+    localBase,
+    '--no-open',
+    '--port', String(PORT),
+    '--data-dir', DATA_DIR,
+  ]
+  if (__focusPlugin) {
+    // Disable workspace-config loading and only load this plugin. Also
+    // skip data-dir replay so unrelated plugins uploaded earlier never
+    // come back — a focused host starts clean with exactly one plugin.
+    spawnArgs.push(
+      '--no-workspace-plugins', '--no-restart',
+      '--plugin', __focusPlugin + ':' + join(__root, 'plugins', __focusPlugin),
+    )
+  }
+  const child = spawn('node', spawnArgs, {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+    cwd: __root,
+  })
+  child.unref()
+  console.log('[dev] spawned pid ' + child.pid + ' (detached)')
+
+  const ready = await waitForHost(MAX_WAIT_MS)
+  if (!ready) {
+    console.error('[dev] FATAL: host did not become ready within ' + (MAX_WAIT_MS / 1000) + 's')
+    console.error('[dev]   a common cause is the port being taken by another host:')
+    console.error('[dev]     - add --shared (or NX_PN_SHARED=1) to join the existing host on :' + PORT)
+    console.error('[dev]     - or set NX_PN_PORT to a free port for a standalone host')
+    console.error('[dev]   manual run: node "' + localBase + '" --no-open --port ' + PORT + ' --data-dir "' + DATA_DIR + '"')
+    process.exit(1)
+  }
+  console.log('[dev] host ready at ' + HOST)
+}
+
 async function main() {
   console.log('[dev] monorepo root: ' + __root)
   console.log('[dev] base binary:  ' + localBase)
+  console.log('[dev] mode: ' + (__shared ? 'shared' : 'standalone') + (__focusPlugin ? ' (focus: ' + __focusPlugin + ')' : ' (all plugins)'))
 
-  console.log('[dev] probing ' + HOST + ' ...')
   const alreadyUp = await probe(PORT)
   if (alreadyUp) {
-    console.log('[dev] host already running at ' + HOST)
-  } else {
-    console.log('[dev] no host detected — spawning local nx-pn ...')
-
-    // Ensure .data dir exists
-    await mkdir(DATA_DIR, { recursive: true })
-
-    console.log('[dev] data-dir: ' + DATA_DIR)
-    if (__isFocus) console.log('[dev] focus: ' + __focusPlugins.join(', ') + ' (only these plugins will be loaded)')
-    const spawnArgs = [
-      localBase,
-      '--no-open',
-      '--port', String(PORT),
-      '--data-dir', DATA_DIR,
-    ]
-    if (__isFocus) {
-      // Disable workspace-config loading and only load the focused
-      // plugins. Also skip data-dir replay so unrelated plugins uploaded
-      // earlier never come back — focus means exactly the named plugins.
-      spawnArgs.push('--no-workspace-plugins', '--no-restart')
-      for (const id of __focusPlugins) {
-        spawnArgs.push('--plugin', id + ':' + join(__root, 'plugins', id))
-      }
-    }
-    const child = spawn('node', spawnArgs, {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-      cwd: __root,
-    })
-    child.unref()
-    console.log('[dev] spawned pid ' + child.pid + ' (detached)')
-
-    const ready = await waitForHost(MAX_WAIT_MS)
-    if (!ready) {
-      console.error('[dev] FATAL: host did not become ready within ' + (MAX_WAIT_MS / 1000) + 's')
-      console.error('[dev] try running manually: node "' + localBase + '" --no-open --port ' + PORT + ' --data-dir "' + DATA_DIR + '"')
+    if (__shared) {
+      console.log('[dev] shared host already running at ' + HOST + ' — joining')
+    } else {
+      // Standalone mode but the port is occupied by another host: fail
+      // loudly with guidance instead of silently sharing or moving ports.
+      console.error('[dev] FATAL: ' + HOST + ' is already occupied by another host')
+      console.error('[dev]   add --shared (or NX_PN_SHARED=1) to join it,')
+      console.error('[dev]   or set NX_PN_PORT to a free port for a standalone host')
       process.exit(1)
     }
-    console.log('[dev] host ready at ' + HOST)
+  } else {
+    console.log('[dev] no host on ' + HOST + ' — spawning local nx-pn ...')
+    await spawnHost()
   }
 
   console.log('[dev] done — connect to ' + HOST + ' in your browser')
 
-  // Startup upload: build + hot-upload every workspace plugin once the
-  // host is up. The host replays previously-uploaded zips from the data
-  // dir on boot, but that replay is best-effort and a stale zip (e.g. a
-  // pre-browser-half build) can leave a plugin without its browser half
-  // — its pages then 404 in the shell. Re-uploading the current source
-  // guarantees every plugin comes back with a complete manifest (host +
-  // browser), so `npm run dev` is a closed loop: one command, working
-  // plugin pages.
+  // Startup upload: build + hot-upload the plugins this dev terminal owns.
+  // The host replays previously-uploaded zips from the data dir on boot,
+  // but that replay is best-effort and a stale zip (e.g. a pre-browser-half
+  // build) can leave a plugin without its browser half — its pages then
+  // 404 in the shell. Re-uploading the current source guarantees a complete
+  // manifest (host + browser), so `npm run dev` is a closed loop: one
+  // command, working plugin pages. In shared mode this uploads this
+  // terminal's plugin into the shared host (all plugins from the root).
   const pluginsRoot = join(__root, 'plugins')
   const pluginDirs = await readdir(pluginsRoot).catch(() => [])
   for (const dir of pluginDirs) {
-    // Focus mode: only the focused plugins are uploaded.
-    if (__isFocus && !__focusPlugins.includes(dir)) continue
+    // Focus mode: only the focused plugin is uploaded.
+    if (__focusPlugin && dir !== __focusPlugin) continue
     const pkgPath = join(pluginsRoot, dir, 'package.json')
     try {
       await readFile(pkgPath)
