@@ -1,0 +1,27 @@
+{
+  "name": "@flowot/nx-pn-hmr",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "peerDependencies": {
+    "@flowot/nx-pn-host": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "typescript": "5.6.3"
+  }
+}

@@ -11,7 +11,7 @@
 ```bash
 # Plugin lifecycle
 npx @flowot/nx-pn init <name>                # scaffold a plugin (9 template files)
-npx @flowot/nx-pn build <pluginDir>          # run the plugin's own build-zip.mjs
+npx @flowot/nx-pn build <pluginDir>          # run the plugin's own build.mjs
 npx @flowot/nx-pn add <spec>                 # install by npm name / file:./dir
 npx @flowot/nx-pn plugin list                # installed plugins (live host, else cold)
 npx @flowot/nx-pn plugin show <id|runId>     # one plugin's manifest
@@ -118,7 +118,7 @@ npx @flowot/nx-pn plugin show my-plugin
   and is shared by `GET /api/audit` and the CLI cold path — filters/sort/limit
   behave identically over a live host or a cold data dir.
 - **Build is the plugin's job.** `build <dir>` shells out to the plugin's own
-  `scripts/build-zip.mjs` (each plugin owns its esbuild externals / zip
+  `scripts/build.mjs` (each plugin owns its esbuild externals / zip
   writer); the CLI never re-implements bundling.
 - **Live-fiber actions need a live host.** `plugin stop/remove/uninstall`
   operate on fibers that only exist in a running host's lifecycle — cold-start

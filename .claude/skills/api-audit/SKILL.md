@@ -19,7 +19,7 @@ claim the whole viewport (`layout: 'fullscreen'`) and manage its own sub-routes.
 | `packages/core` | Zero-cordis pure contracts (Manifest, AuditClient, Middleware) |
 | `packages/host` | Node runtime — HTTP, WS RPC, cordis services, plugin loader/installer |
 | `packages/client` | Browser runtime — WS RPC, Pages service, auditClient proxy, browser-half loader |
-| `plugins/` | Plugin sources — each is its own workspace package |
+| `plugins/` | Plugin sources — published-plugin form (each lives at `plugins/<id>/` and is built/uploaded to a host) |
 
 ## Core invariant
 
@@ -33,7 +33,26 @@ without dragging cordis or any other runtime dep across the boundary.
 pnpm install
 pnpm -r build
 npx @flowot/nx-pn                  # starts web on :4560
-npx @flowot/nx-pn init my-plugin   # scaffold a new third-party plugin (9 files)
+npx @flowot/nx-pn init my-plugin   # scaffold a new workspace (9 files: 4 at root + 5 under plugins/<id>/)
+npx @flowot/nx-pn init-plugin <id>  # add a plugin to an existing workspace's plugins/ dir
+```
+
+### Dev loop (the important UX)
+
+The dev cycle is **workspace-based**: a workspace holds the base in `devDependencies`
+and the plugins in `plugins/`. From a plugin dir:
+
+```bash
+cd plugins/my-plugin
+npm run dev                # dev.mjs spawns the embedded base from ./node_modules/@flowot/nx-pn/bin/nx-pn.mjs, loads this plugin, watches for changes (HMR via zip upload + runId dedup)
+```
+
+Or for the monorepo root (`scripts/dev.mjs`):
+
+```bash
+node scripts/dev.mjs         # standalone: own host, all plugins
+node scripts/dev.mjs --shared  # join the shared host on :4560 (or create one)
+cd plugins/X && npm run dev -- --shared  # join a shared host from a plugin dir
 ```
 
 ## How to read this skill

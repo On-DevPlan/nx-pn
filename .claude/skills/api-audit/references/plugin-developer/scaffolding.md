@@ -26,20 +26,25 @@ derives four fields:
 Invalid names (uppercase, underscore, non-ASCII, >64 chars, leading/trailing
 hyphen) are rejected **before any file is written** — no half-scaffolds.
 
-## The 9 scaffolded files
+## The 9 scaffolded files (workspace layout)
 
 ```
 <dir>/
-├── manifest.json          # halves host+browser, page at /<name> (build-generated)
-├── package.json           # main/exports → ./host.js + api-audit.manifest
-├── host.ts                # cordis plugin: hello-call on activation
-├── browser.tsx            # React counter page, closure-captured ctx
-├── tsconfig.json          # extends ../../tsconfig.base.json
-├── README.md              # build/install/develop/publish doc
-├── scripts/build-zip.mjs  # esbuild + STORED zip + externals assertions
-├── scripts/dev.mjs        # dev watch loop: rebuild + hot-upload on save (npm run dev)
-└── .gitignore             # dist/, node_modules/, *.zip
+├── package.json              # devDeps: @flowot/nx-pn (embedded base); scripts: dev/build
+├── tsconfig.json             # baseUrl: .; paths: @flowot/plugin-* → ./plugins/*/src
+├── scripts/dev.mjs           # self-bootstraps base from ./node_modules/@flowot/nx-pn/bin/nx-pn.mjs
+├── scripts/build.mjs         # esbuild + STORED zip + cordis/React externals assertions
+└── plugins/<name>/
+    ├── package.json          # peerDeps: @flowot/nx-pn-host; devDeps: @flowot/nx-pn-client
+    ├── tsconfig.json         # extends ../../../tsconfig.json
+    ├── manifest.json         # halves: { host: { entry: host.js }, browser: { entry: browser.js } }
+    ├── host.ts               # cordis plugin: hello-call on activation
+    └── browser.tsx           # React counter page, closure-captured ctx
 ```
+
+> Note: this is the **workspace** layout (master plan v2 之后). dev.mjs lives at
+> the workspace root, not per-plugin. Plugins live under `plugins/<name>/`.
+> `npx @flowot/nx-pn init <name>` still creates this 9-file scaffold.
 
 **Dual install path by design**:
 
@@ -47,10 +52,10 @@ hyphen) are rejected **before any file is written** — no half-scaffolds.
   the host's `resolveHostEntry` (`packages/host/src/plugins/installer.ts:316-328`)
   resolves `pkg.main` and imports from there, so
   `npx @flowot/nx-pn add file:.` works
-- `scripts/build-zip.mjs` emits `dist/<id>.zip` (STORED, manifest + host.js +
+- `scripts/build.mjs` emits `dist/<id>.zip` (STORED, manifest + host.js +
   browser.js) — the zip upload path also works
 
-**Built-in externals assertions** (copied from echo's build-zip pattern):
+**Built-in externals assertions** (in scripts/build.mjs):
 - `host.js` must keep `cordis` external (esbuild `external: ['cordis']`)
 - `browser.js` must keep React + react-router-dom external — regex check on
   the compiled output; would silently double-React otherwise
@@ -83,7 +88,7 @@ takes effect on the next host start (`restartNpmPlugins`).
 |---|---|
 | CLI wiring (`--dir`/`--force`/positional/usage text) | `apps/cli/src/main.ts` (`parseArgs`, `runInit`) |
 | Pure functions + scaffold I/O | `apps/cli/src/init.ts` (`validateName`, `nameToTitle`, `nameToPath`, `nameToComponent`, `renderTemplate`, `scaffoldPlugin`) |
-| Template sources (9 files, `{{var}}` placeholders) | `apps/cli/templates/plugin-basic/` |
+| Template sources (9 files, `{{var}}` placeholders) | `apps/cli/templates/plugin-workspace/` |
 | Unit + e2e tests (28) | `apps/cli/src/init.test.ts` |
 
 Key facts:
@@ -103,7 +108,7 @@ Key facts:
 - **New template file added** → update "The 9 scaffolded files" table +
   `scaffoldPlugin`'s `fileList` in `init.ts` must stay in lockstep
 - **Template placeholder added** → document the new var in this file and in
-  `apps/cli/templates/plugin-basic/README.md`
+  `apps/cli/templates/plugin-workspace/README.md`
 - **New flag added to init** → update the CLI table + `main.ts` usage text
 - **`resolveHostEntry` contract changes** → update "Dual install path by
   design" (main/exports must stay resolvable from package root)

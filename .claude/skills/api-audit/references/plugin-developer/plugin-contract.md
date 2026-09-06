@@ -7,7 +7,7 @@ Don't hand-copy template files — `init` generates them for you:
 ```bash
 npx @flowot/nx-pn init <name>    # → 9 files (manifest, package.json, host.ts,
                                   #    browser.tsx, tsconfig, README,
-                                  #    scripts/build-zip.mjs, .gitignore)
+                                  #    scripts/build.mjs, .gitignore)
 ```
 
 Derives the manifest id, page title, page path, and React component name from
@@ -155,7 +155,7 @@ export default (ctx, config) => {
 app's import map resolves them to the shared vendor chunk (spec §5.2.2) so
 hooks and context are unified with the shell.
 
-The `scripts/build-zip.mjs` pattern asserts this post-compilation with a regex
+The `scripts/build.mjs` pattern asserts this post-compilation with a regex
 check on the output (looks for `from "react"` in the compiled `browser.js`).
 
 **Closure capture pattern**: define the Component inside the plugin function so
@@ -201,7 +201,7 @@ with `initiator: "replay:<recordId>"`, producing a new `AuditRecord` with
 
 ## Distributing
 
-- **Zip**: build with `esbuild` (see `plugins/example-api/scripts/build-zip.mjs`),
+- **Zip**: build with `esbuild` (see `plugins/example-api/scripts/build.mjs`),
   upload via `/api/plugins` or the Plugins page
 - **npm**: publish a package with `api-audit.manifest` + `api-audit.browser` in
   `package.json`, install via `npx @flowot/nx-pn add <name>`
@@ -219,5 +219,8 @@ with `initiator: "replay:<recordId>"`, producing a new `AuditRecord` with
 
 ## Full example
 
-See `plugins/example-api/` (activation-time GET) and `plugins/echo/`
-(user-driven form with POST/PUT/DELETE).
+See `plugins/example-api/` (activation-time GET) and `plugins/enco/`
+(user-driven form with POST/PUT/DELETE). The walkthrough for the form-style
+plugin is at `references/walkthrough-echo.md` (note: the doc still names
+`echo/`, but the current plugin source is at `plugins/enco/` after the 0.4.0
+refactor).

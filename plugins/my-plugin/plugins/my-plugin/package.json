@@ -1,0 +1,33 @@
+{
+  "name": "my-plugin",
+  "version": "0.0.1",
+  "description": "My Plugin plugin for nx-pn",
+  "type": "module",
+  "main": "host.js",
+  "module": "host.js",
+  "types": "host.d.ts",
+  "exports": {
+    ".": { "types": "./host.d.ts", "import": "./host.js" },
+    "./browser": "./browser.js"
+  },
+  "files": ["host.js", "host.d.ts", "browser.js", "manifest.json", "README.md"],
+  "peerDependencies": { "@flowot/nx-pn-host": "^0.0.1" },
+  "devDependencies": {
+    "@flowot/nx-pn-client": "^0.0.1",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "esbuild": "^0.24.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2",
+    "typescript": "5.6.3"
+  },
+  "dependencies": {},
+  "scripts": {
+    "build": "node ../../scripts/build.mjs my-plugin",
+    "dev": "node ../../scripts/dev.mjs",
+    "hmr": "node ../../scripts/dev.mjs"
+  },
+  "keywords": ["nx-pn", "plugin", "my-plugin"],
+  "license": "MIT"
+}

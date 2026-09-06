@@ -11,6 +11,9 @@ importers:
       '@flowot/nx-pn':
         specifier: workspace:^
         version: link:apps/cli
+      '@flowot/nx-pn-hmr':
+        specifier: workspace:*
+        version: link:packages/hmr
       esbuild:
         specifier: ^0.24.0
         version: 0.24.2
@@ -128,6 +131,19 @@ importers:
       vitest:
         specifier: 2.1.5
         version: 2.1.5(@types/node@22.20.1)
+
+  packages/hmr:
+    dependencies:
+      '@flowot/nx-pn-host':
+        specifier: workspace:^
+        version: link:../host
+    devDependencies:
+      '@types/node':
+        specifier: ^22.7.0
+        version: 22.20.1
+      typescript:
+        specifier: 5.6.3
+        version: 5.6.3
 
   packages/host:
     dependencies:

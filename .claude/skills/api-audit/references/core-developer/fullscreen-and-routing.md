@@ -94,7 +94,7 @@ plugins/devctr-kv/
 ├── manifest.json          # layout:'fullscreen' + routes[/,/groups,/keys,/user]
 ├── host.ts                # JWT + devctr-kv/* event handlers (auditClient)
 ├── browser.tsx            # TopBar + 4 self-sufficient views + auth store
-├── scripts/build-zip.mjs  # esbuild host+browser → dist/devctr-kv.zip
+├── scripts/build.mjs  # esbuild host+browser → dist/devctr-kv.zip
 └── package.json / tsconfig.json
 ```
 
@@ -110,7 +110,7 @@ plugins/devctr-kv/
 ## Live smoke
 
 ```bash
-cd plugins/devctr-kv && node scripts/build-zip.mjs
+cd plugins/devctr-kv && node scripts/build.mjs
 curl -F "zip=@dist/devctr-kv.zip" http://localhost:4560/api/plugins
 ```
 

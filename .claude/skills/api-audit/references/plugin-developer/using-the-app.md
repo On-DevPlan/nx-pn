@@ -69,7 +69,7 @@ DELETE) require an explicit confirm step before re-running.
 
 Two install paths:
 1. **By name** — type an npm spec in the text input, click 安装
-2. **By zip** — upload a dual-half zip built with `scripts/build-zip.mjs`
+2. **By zip** — upload a dual-half zip built with `scripts/build.mjs`
 
 The table shows installed plugins with **id / version / status / pluginRunId** and
 stop/remove controls. Re-uploading the same id replaces the previous run (the old

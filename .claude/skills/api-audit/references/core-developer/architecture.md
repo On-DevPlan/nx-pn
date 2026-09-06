@@ -157,7 +157,7 @@ cordis into the output, breaking the link to the host's cordis instance. Always 
 ### Init template ↔ scaffolded-fileList lockstep
 
 `apps/cli/src/init.ts` `scaffoldPlugin` iterates a hard-coded `fileList`. Adding
-a template file to `apps/cli/templates/plugin-basic/` without adding it to
+a template file to `apps/cli/templates/plugin-workspace/` without adding it to
 `fileList` (and to `init.test.ts`'s file-count assertion) silently drops it from
 every scaffolded plugin. Keep all three in sync.
 

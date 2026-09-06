@@ -1,13 +1,18 @@
-# The second plugin: `plugins/echo/`
+# The second plugin: `plugins/enco/` (formerly `echo/`)
+
+> **Note**: this walkthrough documents the **old** `echo/` plugin (deleted in the
+> 0.4.0 refactor). The current equivalent is `plugins/enco/` (encoding utility demo)
+> with the same `browser.tsx` React-form + `host.ts` cordis-event pattern. See
+> `apps/cli/templates/plugin-workspace/plugins/{{pluginId}}/` for the new template.
 
 A user-driven API request tester. Unlike `example-api` (which fires one fixed GET
-on activation), echo provides a form where the user picks the HTTP method, types
+on activation), enco provides a form where the user picks the HTTP method, types
 a URL, headers, and body, and the form dispatches the request through the
 unified `auditClient`.
 
 ## What makes it different from example-api
 
-| Aspect | example-api | echo |
+| Aspect | example-api | enco |
 |---|---|---|
 | Trigger | Activation-time (hello-call) | User-driven (form submit) |
 | HTTP methods | GET only | GET, POST, PUT, PATCH, DELETE |
@@ -24,7 +29,7 @@ plugins/echo/
 ├── manifest.json          # zip-style: schemaVersion, id, halves, pages
 ├── host.ts                # registers 'echo/ping' tool event + hello-call
 ├── browser.tsx            # EchoPage component (useState, useNavigate, closure-captured ctx)
-├── scripts/build-zip.mjs  # esbuild host+browser → dist/echo.zip
+├── scripts/build.mjs  # esbuild host+browser → dist/echo.zip
 ├── README.md              # one-paragraph what/how
 └── dist/                  # build output (echo.zip, host.js, browser.js, manifest.json)
 ```
@@ -110,7 +115,7 @@ export default browserHalf
 
 ```bash
 cd plugins/echo
-node scripts/build-zip.mjs    # → dist/echo.zip (6840 bytes)
+node scripts/build.mjs    # → dist/echo.zip (6840 bytes)
 ```
 
 The build script:
