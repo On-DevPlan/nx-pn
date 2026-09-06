@@ -2,4 +2,8 @@ packages:
   - 'apps/*'
   - 'packages/*'
   - 'packages/storage/*'
-  - 'plugins/*'
+  # plugins/* is intentionally excluded: each plugin is self-contained and
+  # installs its own dev deps via its bundled package-lock.json (npm-managed
+  # standalone). Keeping plugins in the workspace closure would force pnpm to
+  # resolve their `@flowot/*` peer/dev deps against the registry before any
+  # package in the workspace can be released — blocking the publish flow.
