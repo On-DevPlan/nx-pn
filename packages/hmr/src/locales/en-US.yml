@@ -1,0 +1,6 @@
+en-US:
+  hmr_started: '[hmr] watching {root} (Ctrl+C to exit)'
+  hmr_change: '[hmr] change: {rel}'
+  hmr_rebuild: '[hmr] rebuilding {pluginId}...'
+  hmr_ok: '[hmr] ok {pluginId} -> run={runId}{replaced} ({ms}ms)'
+  hmr_fail: '[hmr] failed {pluginId}: {error}'

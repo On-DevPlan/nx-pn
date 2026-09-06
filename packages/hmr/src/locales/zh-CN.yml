@@ -1,0 +1,6 @@
+zh-CN:
+  hmr_started: '[hmr] 监听 {root} (Ctrl+C 退出)'
+  hmr_change: '[hmr] 变更 {rel}'
+  hmr_rebuild: '[hmr] 重建 {pluginId}...'
+  hmr_ok: '[hmr] 完成 {pluginId} -> run={runId}{replaced} ({ms}ms)'
+  hmr_fail: '[hmr] 失败 {pluginId}: {error}'

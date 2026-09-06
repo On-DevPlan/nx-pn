@@ -14,6 +14,7 @@
   "peerDependencies": { "@flowot/nx-pn-host": "^{{version}}" },
   "devDependencies": {
     "@flowot/nx-pn-client": "^{{version}}",
+    "@flowot/nx-pn-hmr": "^{{version}}",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "esbuild": "^0.24.0",
