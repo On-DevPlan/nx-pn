@@ -1,19 +1,24 @@
 {
-  "name": "{{pluginId}}",
-  "version": "{{version}}",
-  "description": "{{title}} plugin for nx-pn",
+  "name": "enco",
+  "version": "0.3.3",
+  "description": "Enco plugin for nx-pn",
   "type": "module",
   "main": "host.js",
   "module": "host.js",
   "types": "host.d.ts",
   "exports": {
-    ".": { "types": "./host.d.ts", "import": "./host.js" },
+    ".": {
+      "types": "./host.d.ts",
+      "import": "./host.js"
+    },
     "./browser": "./browser.js"
   },
   "files": ["host.js", "host.d.ts", "browser.js", "manifest.json", "README.md"],
-  "peerDependencies": { "@flowot/nx-pn-host": "^{{version}}" },
+  "peerDependencies": {
+    "@flowot/nx-pn-host": "^0.3.3"
+  },
   "devDependencies": {
-    "@flowot/nx-pn-client": "^{{version}}",
+    "@flowot/nx-pn-client": "^0.3.3",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "esbuild": "^0.24.0",
@@ -24,10 +29,10 @@
   },
   "dependencies": {},
   "scripts": {
-    "build": "node ../../scripts/build.mjs {{pluginId}}",
+    "build": "node ../../build.mjs enco",
     "dev": "node ../../scripts/dev.mjs",
     "hmr": "node ../../scripts/dev.mjs"
   },
-  "keywords": ["nx-pn", "plugin", "{{pluginId}}"],
+  "keywords": ["nx-pn", "plugin", "enco"],
   "license": "MIT"
 }

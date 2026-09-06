@@ -25,3 +25,9 @@ data-dir/
 .tool/
 
 .playwright-mcp
+.data
+.nx
+
+# Temp scratch dirs
+tmp/
+.tool 

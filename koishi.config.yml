@@ -1,0 +1,7 @@
+# Monorepo workspace config — lists all plugins under plugins/.
+# Used by scripts/dev.mjs to spawn the embedded base and by the build system.
+plugins:
+  - id: kvlogin
+    path: ./plugins/kvlogin
+  - id: enco
+    path: ./plugins/enco

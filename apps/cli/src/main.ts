@@ -14,7 +14,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { npmInstallPlugin, uninstallNpmPlugin, startHost, type StartedHost } from '@flowot/nx-pn-host'
-import { InitError, scaffoldPlugin } from './init.js'
+import { InitError, scaffoldPlugin, scaffoldPluginInWorkspace } from './init.js'
 import { probeHost } from './probe.js'
 import { runAuditList, runAuditLastId } from './audit-cmds.js'
 import { runPluginList, runPluginShow, runPluginStop, runPluginStart, runPluginRemove, runPluginUninstall } from './plugin-cmds.js'
@@ -38,7 +38,7 @@ export interface CliOptions {
   /** Whether to auto-open the browser (default true; --no-open disables). */
   open: boolean
   /** Set when the first positional names a one-shot subcommand. */
-  subcommand?: 'add' | 'uninstall' | 'init' | 'audit' | 'plugin' | 'build'
+  subcommand?: 'add' | 'uninstall' | 'init' | 'init-plugin' | 'audit' | 'plugin' | 'build'
   /** For `add <spec>` — npm package name/spec or file: path. */
   spec?: string
   /** For `uninstall <id|runId>` — manifest id or pluginRunId. */
@@ -207,6 +207,15 @@ export function parseArgs(argv: string[]): CliOptions {
       if (positionals.length > 2) {
         throw new CliArgError(`unexpected argument after name: ${positionals[2]}`)
       }
+    } else if (cmd === 'init-plugin') {
+      opts.subcommand = 'init-plugin'
+      if (second === undefined || second === '') {
+        throw new CliArgError('init-plugin requires a plugin name')
+      }
+      opts.pluginName = second
+      if (positionals.length > 2) {
+        throw new CliArgError(`unexpected argument after name: ${positionals[2]}`)
+      }
     } else if (cmd === 'add') {
       opts.subcommand = 'add'
       if (second === undefined || second === '') {
@@ -284,8 +293,10 @@ export function printUsage(): void {
 Usage: nx-pn [command] [options]        (npx @flowot/nx-pn <command>)
 
 Commands:
-  init <name>             Scaffold a new plugin (writes 8 template files)
+  init <name>             Scaffold a plugin workspace (9 files: root + plugins/<id>/)
                           [--dir <path>] [--force]
+  init-plugin <name>      Add a plugin to an existing workspace's plugins/
+                          [--dir <workspace-path>] (default: cwd)
   add <spec>              Install a plugin by npm package name/spec
                           (@scope/pkg, pkg@ver, or file:./folder) — npx-plugin.
                           Forwards to a live host on --port (hot-add) when one
@@ -340,6 +351,10 @@ export async function runCli(argv: string[]): Promise<void> {
   const opts = parseArgs(argv)
   if (opts.subcommand === 'init') {
     await runInit(opts)
+    return
+  }
+  if (opts.subcommand === 'init-plugin') {
+    await runInitPlugin(opts)
     return
   }
   if (opts.subcommand === 'add') {
@@ -515,6 +530,29 @@ async function runInit(opts: CliOptions): Promise<void> {
   console.log('  npm run build')
   // eslint-disable-next-line no-console
   console.log('  npx @flowot/nx-pn add file:.')
+}
+
+/** One-shot `nx-pn init-plugin <name>`: add a plugin to an existing workspace. */
+async function runInitPlugin(opts: CliOptions): Promise<void> {
+  const workspaceDir = opts.initDir ?? process.cwd()
+  const result = await scaffoldPluginInWorkspace({
+    name: opts.pluginName!,
+    workspaceDir,
+  })
+  // eslint-disable-next-line no-console
+  console.log(`✔ 已在 workspace 添加插件 ${opts.pluginName} (${result.files.length} 个文件)`)
+  for (const f of result.files) {
+    // eslint-disable-next-line no-console
+    console.log(`    - ${f}`)
+  }
+  // eslint-disable-next-line no-console
+  console.log('')
+  // eslint-disable-next-line no-console
+  console.log('下一步:')
+  // eslint-disable-next-line no-console
+  console.log(`  npm run build ${opts.pluginName}`)
+  // eslint-disable-next-line no-console
+  console.log('  重启 dev (npm run dev) 或上传: npx @flowot/nx-pn add file:./dist/' + opts.pluginName + '.zip')
 }
 
 /** One-shot `api-audit uninstall <id|runId>`: stop + unload + drop ledger. */

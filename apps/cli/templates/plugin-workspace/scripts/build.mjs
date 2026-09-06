@@ -21,7 +21,8 @@ import { readFile, writeFile, mkdir, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const root = dirname(fileURLToPath(import.meta.url))
+// workspace root = two levels up from scripts/build.mjs
+const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const pluginId = process.argv[2]
 if (!pluginId) {
   console.error('usage: node scripts/build.mjs <pluginId>')
@@ -76,7 +77,9 @@ if (/from\s*["']cordis["']/.test(compiledBrowser) || /require\s*\(["']cordis["']
 if (!/from\s*["']react["']/.test(compiledBrowser)) {
   throw new Error(`${pluginId}: compiled browser.js must keep React external`)
 }
-if (!/from\s*["']react-router-dom["']/.test(compiledBrowser)) {
+// react-router-dom check: only enforce IF the source uses it (plugins like enco don't)
+const browserTsxSrc = await readFile(join(pluginDir, 'browser.tsx'), 'utf-8')
+if (/from\s*["']react-router-dom["']/.test(browserTsxSrc) && !/from\s*["']react-router-dom["']/.test(compiledBrowser)) {
   throw new Error(`${pluginId}: compiled browser.js must keep react-router-dom external`)
 }
 
