@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "kvlogin",
+  "version": "0.3.3",
+  "title": "KV Login",
+  "halves": {
+    "host": { "entry": "host.js" },
+    "browser": { "entry": "browser.js" }
+  }
+}

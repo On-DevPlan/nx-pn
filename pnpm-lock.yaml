@@ -11,6 +11,9 @@ importers:
       '@flowot/nx-pn':
         specifier: workspace:^
         version: link:apps/cli
+      esbuild:
+        specifier: ^0.24.0
+        version: 0.24.2
       nx:
         specifier: 19.8.6
         version: 19.8.6

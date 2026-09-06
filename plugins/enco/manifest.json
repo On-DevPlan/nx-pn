@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "enco",
+  "version": "0.3.3",
+  "title": "Encode/Decode",
+  "halves": {
+    "host": { "entry": "host.js" },
+    "browser": { "entry": "browser.js" }
+  }
+}
