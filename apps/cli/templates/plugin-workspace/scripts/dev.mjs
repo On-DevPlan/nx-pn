@@ -15,7 +15,7 @@
 
 import { spawn, execFile } from 'node:child_process'
 import { watch } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import { dirname, join, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -165,6 +165,24 @@ if (alreadyUp) {
 }
 
 console.log('[dev] done — connect to ' + HOST + ' in your browser')
+
+// Startup upload: build + hot-upload every plugin under plugins/ once the
+// host is up. Without this a fresh `npm run dev` only watches — the plugin
+// never reaches the host and its page 404s in the shell. Re-uploading the
+// current source guarantees a complete manifest (host + browser) and a
+// working page on the very first run.
+const pluginsRoot = join(__root, 'plugins')
+const pluginDirs = await readdir(pluginsRoot).catch(() => [])
+for (const dir of pluginDirs) {
+  const pkgPath = join(pluginsRoot, dir, 'package.json')
+  try {
+    await readFile(pkgPath)
+  } catch {
+    continue // not a plugin package
+  }
+  console.log(`[dev] startup upload: ${dir}`)
+  await rebuildAndUpload(dir)
+}
 
 // Start HMR watcher
 startWatcher()
