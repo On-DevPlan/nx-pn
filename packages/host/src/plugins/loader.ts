@@ -82,18 +82,25 @@ export class PluginLoader {
       throw new LoaderError('zip/too-large', `zip exceeds MAX_ZIP_BYTES (${MAX_ZIP_BYTES})`)
     }
 
-    // (1) Persist zip
-    const uploadId = randomBytes(6).toString('hex')
-    const zipPath = join(this.deps.dataDir, 'plugins', `${uploadId}.zip`)
+    // (1) Read manifest from zip bytes BEFORE writing to disk so we can
+    // name the persisted zip `{id}.zip` — reloads overwrite the same
+    // file (one zip per plugin) instead of piling up random-hash snapshots.
+    const rawManifest = extractManifestFromZipBytes(opts.zipBytes).manifest
+    const manifest = validateManifest(rawManifest)
+    const id = opts.idHint ?? manifest.id
+
+    // (2) Persist zip with semantic name; overwrites any previous version.
+    const zipPath = join(this.deps.dataDir, 'plugins', `${id}.zip`)
     await mkdir(dirname(zipPath), { recursive: true })
     await writeFile(zipPath, opts.zipBytes)
 
-    // (3) Read manifest
-    const { manifest: rawManifest } = await extractManifestAndEntryFromZipFile(zipPath)
-    // (3b) Validate manifest BEFORE extracting entries — schema violations
-    // must surface as `Invalid manifest`, not as missing-host-entry errors.
-    const manifest = validateManifest(rawManifest)
-    const id = opts.idHint ?? manifest.id
+    // (3) Re-validate manifest after writing — same data, but keeps the
+    // historical check ordering explicit and surfaces any drift between
+    // the in-memory bytes and what just hit disk.
+    const { manifest: reReadManifest } = await extractManifestAndEntryFromZipFile(zipPath)
+    if (validateManifest(reReadManifest).id !== id) {
+      throw new LoaderError('zip/id-drift', `manifest id changed between bytes and disk read for ${id}`)
+    }
 
     if (manifest.halves.host === undefined) {
       throw new LoaderError('manifest/no-host-half', 'manifest.halves.host.entry is required (no host half declared)')
@@ -494,9 +501,9 @@ export class PluginLoader {
     // (5) Build zip bytes from the compiled .mjs and manifest.json
     const zipBytes = await buildZipForLink(targetDir, compileResult.code, manifest)
 
-    // (6) Persist zip and activate via load()
-    const uploadId = randomBytes(6).toString('hex')
-    const zipPath = join(this.deps.dataDir, 'plugins', `${uploadId}.zip`)
+    // (6) Persist zip with semantic name `{id}.zip` (overwrites prior
+    // version of the same plugin) and activate via load().
+    const zipPath = join(this.deps.dataDir, 'plugins', `${manifest.id}.zip`)
     await mkdir(dirname(zipPath), { recursive: true })
     await writeFile(zipPath, zipBytes)
 
@@ -542,7 +549,15 @@ interface ExtractedManifest {
  */
 async function extractManifestAndEntryFromZipFile(zipPath: string): Promise<ExtractedManifest> {
   const buf = await readFile(zipPath)
-  const entries = readZip(buf)
+  return extractManifestFromZipBytes(buf)
+}
+
+/** Same as extractManifestAndEntryFromZipFile but takes zip bytes in memory.
+ *  Used by load() to pick a semantic zip path (per-plugin-id) BEFORE the
+ *  bytes hit disk, so reloads overwrite `{id}.zip` instead of accumulating
+ *  random-hash snapshots. */
+function extractManifestFromZipBytes(zipBytes: Uint8Array): ExtractedManifest {
+  const entries = readZip(Buffer.from(zipBytes))
   for (const e of entries) {
     if (e.name === 'manifest.json') {
       return { manifest: JSON.parse(Buffer.from(e.data).toString('utf-8')) }
