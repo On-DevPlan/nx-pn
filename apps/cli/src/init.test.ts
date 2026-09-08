@@ -98,13 +98,15 @@ describe('renderTemplate', () => {
 
 describe('scaffoldPlugin (end-to-end)', () => {
   it(
-    'writes the workspace structure (14 files) into a fresh dir and replaces {{vars}}',
+    'writes the workspace structure (10 files) into a fresh dir and replaces {{vars}}',
     async () => {
       const dir = await mkdtemp(join(tmpdir(), 'init-test-'))
       try {
         const result = await scaffoldPlugin({ name: 'demo-plugin', dir, force: false })
-        // workspace template: 4 root files + 5 plugin subdir files = 9 files
-        expect(result.files).toHaveLength(9)
+        // workspace template: 5 root files (package.json, tsconfig.json,
+        // scripts/dev.mjs, scripts/shared-dev.mjs, scripts/build.mjs) +
+        // 5 plugin subdir files = 10 files
+        expect(result.files).toHaveLength(10)
 
         // manifest.json IS scaffolded (workspace template includes it)
         const manifest = JSON.parse(await readFile(join(dir, 'plugins', 'demo-plugin', 'manifest.json'), 'utf-8'))
@@ -157,7 +159,7 @@ describe('scaffoldPlugin (end-to-end)', () => {
     try {
       await scaffoldPlugin({ name: 'demo-plugin', dir, force: false })
       const result = await scaffoldPlugin({ name: 'demo-plugin', dir, force: true })
-      expect(result.files).toHaveLength(9)
+      expect(result.files).toHaveLength(10)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

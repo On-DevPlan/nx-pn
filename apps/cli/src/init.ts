@@ -152,6 +152,7 @@ export async function scaffoldPlugin(opts: InitOptions): Promise<InitResult> {
     'package.json',
     'tsconfig.json',
     'scripts/dev.mjs',
+    'scripts/shared-dev.mjs',
     'scripts/build.mjs',
   ]
 

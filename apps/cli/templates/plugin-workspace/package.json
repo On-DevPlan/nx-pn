@@ -13,6 +13,9 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "node scripts/build.mjs {{pluginId}}"
+    "shared-dev": "node scripts/shared-dev.mjs",
+    "build": "node scripts/build.mjs {{pluginId}}",
+    "test": "node --import tsx --test plugins/{{pluginId}}/host.test.ts",
+    "typecheck": "tsc -p plugins/{{pluginId}}/tsconfig.json"
   }
 }
