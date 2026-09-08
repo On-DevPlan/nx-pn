@@ -22,6 +22,7 @@ export interface InitOptions {
   dir: string
   force: boolean
   skill: boolean
+  layout: 'shell' | 'fullscreen'
 }
 
 export interface InitResult {
@@ -141,6 +142,7 @@ export async function scaffoldPlugin(opts: InitOptions): Promise<InitResult> {
     path,
     pageComponentName: componentName,
     version,
+    layout: opts.layout,
     description: 'Scaffolded nx-pn plugin: ' + title,
     'user-agent': 'nx-pn-' + opts.name + '/0.0.1',
   }
@@ -156,13 +158,17 @@ export async function scaffoldPlugin(opts: InitOptions): Promise<InitResult> {
     'scripts/build.mjs',
   ]
 
-  // Plugin subdir files (under plugins/<pluginId>/)
+  // Plugin subdir files (under plugins/<pluginId>/).
+  // Browser file is layout-dependent:
+  //   - 'shell'      → browser-sidebar.tsx    (single page, sidebar entry)
+  //   - 'fullscreen' → browser-fullscreen.tsx (nested routes, own topbar)
+  const browserFile = opts.layout === 'fullscreen' ? 'browser-fullscreen.tsx' : 'browser-sidebar.tsx'
   const pluginFiles = [
     'package.json',
     'tsconfig.json',
     'manifest.json',
     'host.ts',
-    'browser.tsx',
+    browserFile,
   ]
 
   // Check dest — refuse non-empty unless --force

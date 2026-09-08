@@ -121,7 +121,8 @@ describe('scaffoldPlugin (end-to-end)', () => {
 
         const host = await readFile(join(dir, 'plugins', 'demo-plugin', 'host.ts'), 'utf-8')
         expect(host).toContain('demo-plugin')
-        const browser = await readFile(join(dir, 'plugins', 'demo-plugin', 'browser.tsx'), 'utf-8')
+        // default layout = 'shell' → browser-sidebar.tsx
+        const browser = await readFile(join(dir, 'plugins', 'demo-plugin', 'browser-sidebar.tsx'), 'utf-8')
         expect(browser).toContain('browserHalf') // template function name
 
         const stat2 = await stat(join(dir, 'scripts', 'dev.mjs'))
@@ -171,6 +172,33 @@ describe('scaffoldPlugin (end-to-end)', () => {
       await expect(scaffoldPlugin({ name: 'BadName', dir, force: false })).rejects.toThrow(
         InitError,
       )
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('writes browser-fullscreen.tsx when layout=fullscreen', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'init-test-'))
+    try {
+      await scaffoldPlugin({ name: 'demo-plugin', dir, force: false, layout: 'fullscreen' })
+      // fullscreen layout → browser-fullscreen.tsx, NOT browser-sidebar.tsx
+      await stat(join(dir, 'plugins', 'demo-plugin', 'browser-fullscreen.tsx'))
+      await expect(
+        stat(join(dir, 'plugins', 'demo-plugin', 'browser-sidebar.tsx')),
+      ).rejects.toThrow()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('default layout is shell (writes browser-sidebar.tsx)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'init-test-'))
+    try {
+      await scaffoldPlugin({ name: 'demo-plugin', dir, force: false, layout: 'shell' })
+      await stat(join(dir, 'plugins', 'demo-plugin', 'browser-sidebar.tsx'))
+      await expect(
+        stat(join(dir, 'plugins', 'demo-plugin', 'browser-fullscreen.tsx')),
+      ).rejects.toThrow()
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

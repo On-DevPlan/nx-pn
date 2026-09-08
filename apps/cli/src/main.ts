@@ -51,6 +51,8 @@ export interface CliOptions {
   force?: boolean
   /** For `init <name>` — skip installing the development skill into .claude/ (default: install). */
   skill?: boolean
+  /** For `init <name>` — browser layout (default: shell). */
+  layout?: 'shell' | 'fullscreen'
   /** For `audit` — action: list | lastId. */
   auditAction?: 'list' | 'lastId'
   /** For `audit list` — query flags. */
@@ -207,6 +209,14 @@ export function parseArgs(argv: string[]): CliOptions {
       opts.skill = false
       continue
     }
+    if (arg === '--layout' || arg.startsWith('--layout=')) {
+      const raw = arg.startsWith('--layout=') ? arg.slice(arg.indexOf('=') + 1) : argv[++i]
+      if (raw !== 'shell' && raw !== 'fullscreen') {
+        throw new CliArgError(`--layout must be 'shell' or 'fullscreen' (got ${raw})`)
+      }
+      opts.layout = raw
+      continue
+    }
     if (arg.startsWith('-')) {
       throw new CliArgError(`unknown argument: ${arg} (try --help)`)
     }
@@ -312,6 +322,8 @@ Usage: nx-pn [command] [options]        (npx @flowot/nx-pn <command>)
 
 Commands:
   init <name>             Scaffold a plugin workspace (9 files: root + plugins/<id>/)
+                          [--dir <path>] [--force] [--no-skill]
+                          [--layout shell|fullscreen] (default shell)
                           [--dir <path>] [--force] [--no-skill]
   init-plugin <name>      Add a plugin to an existing workspace's plugins/
                           [--dir <workspace-path>] (default: cwd)
@@ -530,6 +542,7 @@ async function runInit(opts: CliOptions): Promise<void> {
     dir,
     force: opts.force ?? false,
     skill: opts.skill ?? true,
+    layout: opts.layout ?? 'shell',
   })
   // eslint-disable-next-line no-console
   console.log(`✔ 已生成 ${result.dir} (${result.files.length} 个文件)`)
