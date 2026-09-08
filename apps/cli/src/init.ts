@@ -21,6 +21,7 @@ export interface InitOptions {
   name: string
   dir: string
   force: boolean
+  skill: boolean
 }
 
 export interface InitResult {
@@ -125,6 +126,7 @@ export async function scaffoldPlugin(opts: InitOptions): Promise<InitResult> {
   const path = nameToPath(opts.name)
   const componentName = nameToComponent(opts.name)
   const version = await getCliVersion()
+  const withSkill = opts.skill !== false
 
   // workspaceName: the top-level workspace dir name (the user's chosen name)
   // pluginId: the plugin subdir name under plugins/ (same as workspaceName for v1)
@@ -199,7 +201,34 @@ export async function scaffoldPlugin(opts: InitOptions): Promise<InitResult> {
     written.push('plugins/' + pluginId + '/' + f)
   }
 
+  // ── 3. Install development skill into .claude/skills/<skill>/ ───────
+  // Mirrors koishi's CLI installing sample scripts alongside the boilerplate.
+  // Default ON; pass --no-skill to skip.
+  if (withSkill) {
+    const skillSrc = join(templateDir, '.claude')
+    const skillDst = join(opts.dir, '.claude')
+    try {
+      await readFile(join(skillSrc, 'SKILL.md'), 'utf-8')
+      await copyDir(skillSrc, skillDst)
+      written.push('.claude/')
+    } catch {
+      // No .claude/ in template — skip silently
+    }
+  }
+
   return { dir: opts.dir, files: written }
+}
+
+/** Recursively copy a directory tree. */
+async function copyDir(src: string, dst: string): Promise<void> {
+  const { mkdir, readdir, copyFile } = await import('node:fs/promises')
+  await mkdir(dst, { recursive: true })
+  for (const entry of await readdir(src, { withFileTypes: true })) {
+    const s = join(src, entry.name)
+    const d = join(dst, entry.name)
+    if (entry.isDirectory()) await copyDir(s, d)
+    else await copyFile(s, d)
+  }
 }
 
 /**

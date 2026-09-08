@@ -9,16 +9,20 @@
  *   1. Resolves the local nx-pn binary from workspace root's node_modules
  *   2. Probes :4560; if down, spawns a detached host process with --data-dir
  *   3. Waits up to 60s for the host to become ready (Windows cold-start is slow)
- *   4. Uses the @flowot/nx-pn-hmr package to watch plugins/ and hot-rebuild
- *      on change (host's runId dedup hot-replaces the old run)
+ *   4. Watches plugins/ with node:fs.watch, debounces 500ms, rebuilds the
+ *      affected plugin via scripts/build.mjs, then POSTs dist/<id>.zip to
+ *      /api/plugins (the host's runId dedup hot-replaces the old run).
+ *
+ * Self-contained — no external @flowot/nx-pn-hmr dependency (the file-watcher
+ * logic lives inline; kept here on purpose so scaffolded workspaces have zero
+ * peer-dep beyond @flowot/nx-pn itself).
  */
 
 import { spawn } from 'node:child_process'
+import { watch } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-
-import { Hmr, defaultConfig } from '@flowot/nx-pn-hmr'
 
 // workspace root = two levels up from scripts/dev.mjs
 const __root = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -29,6 +33,114 @@ const PORT = process.env.NX_PN_PORT || 4560
 const DATA_DIR = process.env.NX_PN_DATA_DIR || join(__root, '.data')
 const HOST = `http://localhost:${PORT}`
 const MAX_WAIT_MS = 60_000
+
+// ─ ─ ─ inline Hmr (was @flowot/nx-pn-hmr; extracted to make this template self-contained) ─ ─ ─
+
+const HMR_SKIP = /^(dist[/\\]|node_modules[/\\]|\.git[/\\]|\.data[/\\]|host\.js$|browser\.js$|manifest\.json$)/
+const HMR_SOURCE = /\.(ts|tsx|json)$/
+
+function pluginIdFromPath(root, filename) {
+  const rel = relative(root, join(root, filename)).split(sep).join('/')
+  if (!rel || rel.startsWith('..') || rel.startsWith('.')) return null
+  return rel.split('/')[0] || null
+}
+
+async function uploadZip(uploadUrl, pluginId, zipBytes) {
+  const form = new FormData()
+  form.append('zip', new Blob([zipBytes]), `${pluginId}.zip`)
+  const res = await fetch(uploadUrl, { method: 'POST', body: form, signal: AbortSignal.timeout(30_000) })
+  const json = await res.json().catch(() => null)
+  if (!res.ok || !json?.ok) {
+    const e = json?.error
+    throw new Error(`upload failed (HTTP ${res.status}${e ? `, ${e.code}: ${e.message}` : ''})`)
+  }
+  return json.data
+}
+
+class InlineHmr {
+  constructor(opts) {
+    this.root = opts.root
+    this.uploadUrl = opts.uploadUrl
+    this.buildScript = opts.buildScript
+    this.cwd = opts.cwd
+    this.debounceMs = opts.debounceMs ?? 500
+    this._watcher = null
+    this._pending = new Set()
+    this._draining = new Set()
+    this._timer = null
+  }
+
+  start() {
+    if (this._watcher) return
+    console.log(`[hmr] watching ${this.root} (Ctrl+C to exit)`)
+    this._watcher = watch(this.root, { recursive: true }, (_ev, filename) => {
+      if (!filename) return
+      const rel = filename.split(sep).join('/')
+      if (HMR_SKIP.test(rel) || !HMR_SOURCE.test(rel)) return
+      const pluginId = pluginIdFromPath(this.root, filename)
+      if (!pluginId) return
+      console.log(`\n[hmr] change: ${rel}`)
+      this._enqueue(pluginId)
+    })
+  }
+
+  stop() {
+    if (this._watcher) { this._watcher.close(); this._watcher = null }
+    if (this._timer) { clearTimeout(this._timer); this._timer = null }
+    this._pending.clear()
+    this._draining.clear()
+  }
+
+  _enqueue(pluginId) {
+    this._pending.add(pluginId)
+    if (this._draining.has(pluginId)) return
+    if (this._timer) clearTimeout(this._timer)
+    this._timer = setTimeout(() => {
+      this._timer = null
+      for (const id of [...this._pending]) void this._drain(id)
+    }, this.debounceMs)
+  }
+
+  async _drain(pluginId) {
+    this._draining.add(pluginId)
+    while (this._pending.has(pluginId)) {
+      this._pending.delete(pluginId)
+      const t0 = Date.now()
+      console.log(`[hmr] rebuilding ${pluginId}...`)
+      try {
+        const pluginDir = join(this.root, pluginId)
+        const { code, stdout, stderr } = await this._build(pluginId, pluginDir)
+        if (code !== 0) throw new Error((stderr || stdout).trim() || `build exited ${code}`)
+        const zipPath = join(this.cwd, 'dist', `${pluginId}.zip`)
+        const zip = await readFile(zipPath)
+        const data = await uploadZip(this.uploadUrl, pluginId, zip)
+        const replaced = Array.isArray(data?.replaced) && data.replaced.length > 0
+          ? ` (replaced ${data.replaced.join(', ')})`
+          : ''
+        console.log(`[hmr] ok ${pluginId} -> run=${data?.pluginRunId ?? '?'}${replaced} (${Date.now() - t0}ms)`)
+      } catch (err) {
+        console.log(`[hmr] failed ${pluginId}: ${err instanceof Error ? err.message : String(err)}`)
+        console.log('      fix and save again to retry')
+      }
+    }
+    this._draining.delete(pluginId)
+  }
+
+  _build(pluginId, pluginDir) {
+    return new Promise((resolve) => {
+      const child = spawn('node', [this.buildScript, pluginId], {
+        cwd: this.cwd,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let stdout = '', stderr = ''
+      child.stdout?.on('data', (b) => { stdout += b.toString() })
+      child.stderr?.on('data', (b) => { stderr += b.toString() })
+      child.on('close', (code) => resolve({ code: code ?? 0, stdout, stderr }))
+    })
+  }
+}
+
+// ─ ─ ─ host lifecycle (probe / spawn / wait) ─ ─ ─
 
 async function probe(port) {
   try {
@@ -73,6 +185,32 @@ async function spawnHost() {
   console.log('[dev] host ready at ' + HOST)
 }
 
+async function startupUpload(pluginsRoot, buildScript) {
+  const pluginDirs = await readdir(pluginsRoot).catch(() => [])
+  for (const dir of pluginDirs) {
+    const pkgPath = join(pluginsRoot, dir, 'package.json')
+    try {
+      await readFile(pkgPath)
+    } catch {
+      continue
+    }
+    console.log(`[dev] startup upload: ${dir}`)
+    await new Promise((resolve) => {
+      const child = spawn('node', [buildScript, dir], { cwd: __root, stdio: 'ignore' })
+      child.on('close', () => resolve())
+    }).then(async () => {
+      try {
+        const zipPath = join(__root, 'dist', `${dir}.zip`)
+        const zip = await readFile(zipPath)
+        const form = new FormData()
+        form.append('zip', new Blob([zip]), `${dir}.zip`)
+        await fetch(`${HOST}/api/plugins`, { method: 'POST', body: form, signal: AbortSignal.timeout(30_000) })
+        console.log(`[dev] uploaded ${dir}`)
+      } catch {}
+    })
+  }
+}
+
 async function main() {
   console.log('[dev] probing ' + HOST + ' ...')
   if (await probe(PORT)) {
@@ -85,50 +223,21 @@ async function main() {
   }
   console.log('[dev] done — connect to ' + HOST + ' in your browser')
 
-  // Startup upload: build + hot-upload every plugin under plugins/ once the
-  // host is up. Without this a fresh `npm run dev` only watches — the plugin
-  // never reaches the host and its page 404s in the shell.
   const pluginsRoot = join(__root, 'plugins')
   const buildScript = join(__root, 'scripts', 'build.mjs')
-  const pluginDirs = await readdir(pluginsRoot).catch(() => [])
-  for (const dir of pluginDirs) {
-    const pkgPath = join(pluginsRoot, dir, 'package.json')
-    try {
-      await readFile(pkgPath)
-    } catch {
-      continue // not a plugin package
-    }
-    console.log(`[dev] startup upload: ${dir}`)
-    // inline build+upload (the standalone one-shot path; hmr is the long-running loop below)
-    await new Promise((resolve) => {
-      const child = spawn('node', [buildScript, dir], { cwd: __root, stdio: 'ignore' })
-      child.on('close', () => resolve())
-    }).then(async () => {
-      try {
-        const { readFile: rf } = await import('node:fs/promises')
-        const zipPath = join(pluginsRoot, dir, 'dist', `${dir}.zip`)
-        const zip = await rf(zipPath)
-        const form = new FormData()
-        form.append('zip', new Blob([zip]), `${dir}.zip`)
-        await fetch(`${HOST}/api/plugins`, { method: 'POST', body: form, signal: AbortSignal.timeout(30_000) })
-        console.log(`[dev] uploaded ${dir}`)
-      } catch {}
-    })
-  }
 
-  // Start HMR watcher via the @flowot/nx-pn-hmr package
-  const hmr = new Hmr(defaultConfig({
+  // Startup upload: build + hot-upload every plugin once on entry. Without
+  // this a fresh `npm run dev` only watches — the plugin never reaches the
+  // host and its page 404s in the shell.
+  await startupUpload(pluginsRoot, buildScript)
+
+  // Start the inline HMR watcher
+  const hmr = new InlineHmr({
     root: pluginsRoot,
     uploadUrl: HOST + '/api/plugins',
-    pluginRoot: __root,
-    build: (pluginId, pluginDir) => new Promise((resolve) => {
-      const child = spawn('node', [buildScript, pluginId], { cwd: __root, stdio: ['ignore', 'pipe', 'pipe'] })
-      let stdout = '', stderr = ''
-      child.stdout?.on('data', (b) => { stdout += b.toString() })
-      child.stderr?.on('data', (b) => { stderr += b.toString() })
-      child.on('close', (code) => resolve({ code: code ?? 0, stdout, stderr }))
-    }),
-  }))
+    buildScript,
+    cwd: __root,
+  })
   hmr.start()
 }
 

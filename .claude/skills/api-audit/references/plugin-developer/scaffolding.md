@@ -7,13 +7,14 @@ from `plugins/echo` anymore.
 ## CLI
 
 ```bash
-npx @flowot/nx-pn init <name> [--dir <path>] [--force]
+npx @flowot/nx-pn init <name> [--dir <path>] [--force] [--no-skill]
 ```
 
 | Flag | Meaning |
 |---|---|
 | `--dir <path>` | Output directory (default `./<name>`) |
 | `--force`, `-f` | Overwrite an existing non-empty directory |
+| `--no-skill` | Skip installing the `.claude/` dev skill (installed by default) |
 
 The `name` must match `^[a-z0-9][a-z0-9-]{0,63}$` (no trailing hyphen) and
 derives four fields:
@@ -32,8 +33,12 @@ hyphen) are rejected **before any file is written** — no half-scaffolds.
 <dir>/
 ├── package.json              # devDeps: @flowot/nx-pn (embedded base); scripts: dev/build
 ├── tsconfig.json             # baseUrl: .; paths: @flowot/plugin-* → ./plugins/*/src
-├── scripts/dev.mjs           # self-bootstraps base from ./node_modules/@flowot/nx-pn/bin/nx-pn.mjs
+├── scripts/dev.mjs           # SELF-CONTAINED dev loop: probes/spawns the embedded base,
+│                              # startup-uploads every plugins/<id>/, then watches plugins/
+│                              # (node:fs.watch → rebuild → POST zip; runId dedup hot-replace).
+│                              # No external @flowot/nx-pn-hmr dep — the watcher is inlined.
 ├── scripts/build.mjs         # esbuild + STORED zip + cordis/React externals assertions
+├── .claude/                  # dev skill copied from the template (skip with --no-skill)
 └── plugins/<name>/
     ├── package.json          # peerDeps: @flowot/nx-pn-host; devDeps: @flowot/nx-pn-client
     ├── tsconfig.json         # extends ../../../tsconfig.json
@@ -44,7 +49,8 @@ hyphen) are rejected **before any file is written** — no half-scaffolds.
 
 > Note: this is the **workspace** layout (master plan v2 之后). dev.mjs lives at
 > the workspace root, not per-plugin. Plugins live under `plugins/<name>/`.
-> `npx @flowot/nx-pn init <name>` still creates this 9-file scaffold.
+> `npx @flowot/nx-pn init <name>` creates this 9-file scaffold plus the
+> `.claude/` dev skill (default on).
 
 **Dual install path by design**:
 
@@ -52,8 +58,9 @@ hyphen) are rejected **before any file is written** — no half-scaffolds.
   the host's `resolveHostEntry` (`packages/host/src/plugins/installer.ts:316-328`)
   resolves `pkg.main` and imports from there, so
   `npx @flowot/nx-pn add file:.` works
-- `scripts/build.mjs` emits `dist/<id>.zip` (STORED, manifest + host.js +
-  browser.js) — the zip upload path also works
+- `scripts/build.mjs <id>` emits `<workspace>/dist/<id>.zip` (STORED,
+  manifest + host.js + browser.js) — **workspace-root `dist/`, not per-plugin** —
+  the zip upload path also works; `scripts/dev.mjs` reads the zip from there
 
 **Built-in externals assertions** (in scripts/build.mjs):
 - `host.js` must keep `cordis` external (esbuild `external: ['cordis']`)
@@ -86,9 +93,9 @@ takes effect on the next host start (`restartNpmPlugins`).
 
 | Piece | Location |
 |---|---|
-| CLI wiring (`--dir`/`--force`/positional/usage text) | `apps/cli/src/main.ts` (`parseArgs`, `runInit`) |
-| Pure functions + scaffold I/O | `apps/cli/src/init.ts` (`validateName`, `nameToTitle`, `nameToPath`, `nameToComponent`, `renderTemplate`, `scaffoldPlugin`) |
-| Template sources (9 files, `{{var}}` placeholders) | `apps/cli/templates/plugin-workspace/` |
+| CLI wiring (`--dir`/`--force`/`--no-skill`/positional/usage text) | `apps/cli/src/main.ts` (`parseArgs`, `runInit`) |
+| Pure functions + scaffold I/O + `.claude/` skill copy | `apps/cli/src/init.ts` (`validateName`, `nameToTitle`, `nameToPath`, `nameToComponent`, `renderTemplate`, `scaffoldPlugin`, `copyDir`) |
+| Template sources (9 files + `.claude/` skill, `{{var}}` placeholders) | `apps/cli/templates/plugin-workspace/` |
 | Unit + e2e tests (28) | `apps/cli/src/init.test.ts` |
 
 Key facts:

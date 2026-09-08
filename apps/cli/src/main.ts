@@ -49,6 +49,8 @@ export interface CliOptions {
   initDir?: string
   /** For `init <name>` — overwrite existing non-empty directory. */
   force?: boolean
+  /** For `init <name>` — skip installing the development skill into .claude/ (default: install). */
+  skill?: boolean
   /** For `audit` — action: list | lastId. */
   auditAction?: 'list' | 'lastId'
   /** For `audit list` — query flags. */
@@ -201,6 +203,10 @@ export function parseArgs(argv: string[]): CliOptions {
       opts.restartFromDataDir = false
       continue
     }
+    if (arg === '--no-skill') {
+      opts.skill = false
+      continue
+    }
     if (arg.startsWith('-')) {
       throw new CliArgError(`unknown argument: ${arg} (try --help)`)
     }
@@ -306,7 +312,7 @@ Usage: nx-pn [command] [options]        (npx @flowot/nx-pn <command>)
 
 Commands:
   init <name>             Scaffold a plugin workspace (9 files: root + plugins/<id>/)
-                          [--dir <path>] [--force]
+                          [--dir <path>] [--force] [--no-skill]
   init-plugin <name>      Add a plugin to an existing workspace's plugins/
                           [--dir <workspace-path>] (default: cwd)
   add <spec>              Install a plugin by npm package name/spec
@@ -523,6 +529,7 @@ async function runInit(opts: CliOptions): Promise<void> {
     name: opts.pluginName!,
     dir,
     force: opts.force ?? false,
+    skill: opts.skill ?? true,
   })
   // eslint-disable-next-line no-console
   console.log(`✔ 已生成 ${result.dir} (${result.files.length} 个文件)`)

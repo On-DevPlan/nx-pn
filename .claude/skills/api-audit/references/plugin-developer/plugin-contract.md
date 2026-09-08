@@ -8,6 +8,7 @@ Don't hand-copy template files — `init` generates them for you:
 npx @flowot/nx-pn init <name>    # → 9 files (manifest, package.json, host.ts,
                                   #    browser.tsx, tsconfig, README,
                                   #    scripts/build.mjs, .gitignore)
+                                  #    + .claude/ dev skill (--no-skill skips)
 ```
 
 Derives the manifest id, page title, page path, and React component name from
