@@ -1,0 +1,76 @@
+name: Fix-publish (manual republish)
+
+# Manually republish specific package directories at their current
+# package.json version, idempotently. Use this to repair the npm registry
+# when an earlier push-to-master publish was incomplete (e.g. one package
+# in the family was silently skipped, so downstream users hit ETARGET).
+#
+# Does NOT create tags, does NOT bump versions, does NOT touch git —
+# only publishes the tarballs the dirs currently describe.
+#
+# Trigger: workflow_dispatch (manual, from the Actions tab).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dirs:
+        description: 'Package directories to republish, one per line. Lines starting with # are ignored. Example: "packages/storage/storage-domain".'
+        required: true
+        type: string
+      reason:
+        description: 'Why this manual fix is needed (recorded in run logs)'
+        required: false
+        type: string
+        default: 'manual fix'
+
+permissions:
+  contents: read
+  id-token: write # npm provenance (OIDC)
+
+jobs:
+  fix-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Republish listed packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p .release
+          echo "fix-publish — reason: ${{ inputs.reason }}"
+          echo "${{ inputs.dirs }}" | while IFS= read -r d; do
+            # skip blank lines and comments
+            [ -z "$d" ] && continue
+            case "$d" in '#'*) continue ;; esac
+            if [ ! -f "$d/package.json" ]; then
+              echo "::error::$d has no package.json — skipping"
+              continue
+            fi
+            name=$(node -p "require('./$d/package.json').name")
+            version=$(node -p "require('./$d/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "• $name@$version already on registry — skipping"
+              continue
+            fi
+            echo "• packing $name@$version"
+            tb=$( (cd "$d" && pnpm pack --pack-destination ../../.release) | tail -n 1 )
+            echo "• publishing $name@$version ($tb)"
+            npm publish "$tb" --provenance --access public
+          done
+          echo "fix-publish complete"

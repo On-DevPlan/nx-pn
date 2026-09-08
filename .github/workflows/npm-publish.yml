@@ -69,6 +69,16 @@ jobs:
           done
           echo "family uniform at $v"
 
+      # Catches the "package Y was bumped but package X that depends on Y
+      # wasn't published yet" leak. Auto-discovers public packages, then
+      # for every internal dep at the family version either confirms it's
+      # in this run's publish list or queries the npm registry. Exits
+      # non-zero with a list of what's missing — those must be published
+      # first (via npm-fix-publish.yml for past versions, or by including
+      # them in this run's bump).
+      - name: Preflight dependency closure
+        run: node tools/preflight-publish.mjs
+
       - name: Check if tag exists
         id: check_tag
         run: |
