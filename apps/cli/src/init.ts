@@ -7,7 +7,7 @@
  * with the workspace root holding shared scripts, tsconfig, and package.json.
  */
 
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readFile as readJsonFile } from 'node:fs/promises'
@@ -215,16 +215,27 @@ export async function scaffoldPlugin(opts: InitOptions): Promise<InitResult> {
   if (withSkill) {
     const skillSrc = join(templateDir, '.claude')
     const skillDst = join(opts.dir, '.claude')
-    try {
-      await readFile(join(skillSrc, 'SKILL.md'), 'utf-8')
+    // The template ships skills under .claude/skills/<name>/SKILL.md (nested);
+    // accept a legacy flat .claude/SKILL.md too. Probe with stat — reading a
+    // single guessed path misses the nested layout and silently ships no skill.
+    if ((await pathExists(join(skillSrc, 'skills'))) || (await pathExists(join(skillSrc, 'SKILL.md')))) {
       await copyDir(skillSrc, skillDst)
       written.push('.claude/')
-    } catch {
-      // No .claude/ in template — skip silently
     }
+    // else: template ships no dev skill — skip
   }
 
   return { dir: opts.dir, files: written }
+}
+
+/** True when `path` exists (file or directory). */
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** Recursively copy a directory tree. */

@@ -100,15 +100,16 @@ describe('renderTemplate', () => {
 
 describe('scaffoldPlugin (end-to-end)', () => {
   it(
-    'writes the workspace structure (11 files) into a fresh dir and replaces {{vars}}',
+    'writes the workspace structure (12 files) into a fresh dir and replaces {{vars}}',
     async () => {
       const dir = await mkdtemp(join(tmpdir(), 'init-test-'))
       try {
         const result = await scaffoldPlugin({ name: 'demo-plugin', dir, force: false })
         // workspace template: 5 root files (package.json, tsconfig.json,
         // scripts/dev.mjs, scripts/shared-dev.mjs, scripts/build.mjs) +
-        // 6 plugin subdir files (incl. host.test.ts) = 11 files
-        expect(result.files).toHaveLength(11)
+        // 6 plugin subdir files (incl. host.test.ts) + the .claude/ dev skill = 12
+        expect(result.files).toHaveLength(12)
+        expect(result.files).toContain('.claude/')
 
         // manifest.json IS scaffolded (workspace template includes it)
         const manifest = JSON.parse(await readFile(join(dir, 'plugins', 'demo-plugin', 'manifest.json'), 'utf-8'))
@@ -162,7 +163,7 @@ describe('scaffoldPlugin (end-to-end)', () => {
     try {
       await scaffoldPlugin({ name: 'demo-plugin', dir, force: false })
       const result = await scaffoldPlugin({ name: 'demo-plugin', dir, force: true })
-      expect(result.files).toHaveLength(11)
+      expect(result.files).toHaveLength(12)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -361,6 +362,31 @@ describe('template ↔ fileList lockstep (anti-desync)', () => {
     for (const rel of await walk(templateDir)) {
       const body = await readFile(join(templateDir, rel), 'utf-8')
       expect(body.includes('browser.tsx'), `stale reference to browser.tsx in ${rel}`).toBe(false)
+    }
+  })
+
+  it('installs the .claude/ dev skill by default (template ships it nested)', async () => {
+    // Regression guard: the probe used to read .claude/SKILL.md (flat) while the
+    // template ships .claude/skills/<name>/SKILL.md — the skill was silently
+    // skipped for every scaffold. Assert it lands in the output.
+    const dir = await mkdtemp(join(tmpdir(), 'init-test-'))
+    try {
+      const result = await scaffoldPlugin({ name: 'demo-plugin', dir, force: false })
+      expect(result.files).toContain('.claude/')
+      await stat(join(dir, '.claude', 'skills', 'api-audit', 'SKILL.md'))
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('omits .claude/ when skill:false (--no-skill)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'init-test-'))
+    try {
+      const result = await scaffoldPlugin({ name: 'demo-plugin', dir, force: false, skill: false })
+      expect(result.files).not.toContain('.claude/')
+      await expect(stat(join(dir, '.claude'))).rejects.toThrow()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
     }
   })
 })
