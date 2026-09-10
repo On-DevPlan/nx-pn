@@ -15,7 +15,7 @@ same call 40+ times in one second.
 - browser halves loaded against the *current* run, but the *previous* run is still in the
   host's lifecycle registry → when the host restarts, ledger replay re-registers old runs and
   the browser half loader sees a "new" pluginRunId every snapshot push
-- example-api's activation hello is fire-and-forget — each re-apply fires another `GET httpbin.org/get`
+- the scaffold's activation hello is fire-and-forget — each re-apply fires another `GET httpbin.org/get`
 
 **Fix (destructive, clean slate):**
 

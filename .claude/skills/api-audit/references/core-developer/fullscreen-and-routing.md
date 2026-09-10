@@ -117,7 +117,7 @@ curl -F "zip=@dist/devctr-kv.zip" http://localhost:4560/api/plugins
 - `http://localhost:4560/devctr-kv` → plugin top bar + 概览, NO sidebar/brand
 - in-plugin nav → `/devctr-kv/keys` switches views (URL + view both change)
 - 返回壳 → `/audit` with the shell sidebar restored
-- echo / example-api flat pages unchanged (sidebar intact)
+- enco / kvlogin flat pages unchanged (sidebar intact)
 
 ## Browser→host tool-event bridge (DONE)
 

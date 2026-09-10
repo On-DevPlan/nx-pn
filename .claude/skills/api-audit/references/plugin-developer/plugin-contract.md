@@ -5,9 +5,10 @@
 Don't hand-copy template files — `init` generates them for you:
 
 ```bash
-npx @flowot/nx-pn init <name>    # → 9 files (manifest, package.json, host.ts,
-                                  #    browser.tsx, tsconfig, README,
-                                  #    scripts/build.mjs, .gitignore)
+npx @flowot/nx-pn init <name>    # → a workspace: 11 files (root package.json/tsconfig,
+                                  #    scripts/dev.mjs + shared-dev.mjs + build.mjs,
+                                  #    plugins/<name>/: manifest.json, package.json,
+                                  #    tsconfig.json, host.ts, host.test.ts, browser-*.tsx)
                                   #    + .claude/ dev skill (--no-skill skips)
 ```
 
@@ -24,7 +25,7 @@ A zip with three files: `manifest.json`, `host.js`, `browser.js`. Upload via
 validates, compiles the host half with esbuild, imports it, and registers the
 fiber.
 
-Example: `plugins/example-api/`
+Example: `plugins/enco/`, `plugins/kvlogin/` (flat legacy layout)
 
 ### 2. npm install-by-name (new path)
 
@@ -115,7 +116,7 @@ in the lifecycle + the browser's PageRegistry.
 ## Browser half contract (ESM, shared React)
 
 ```tsx
-// browser.tsx — compiled to browser.js with:
+// browser-*.tsx — compiled to browser.js with:
 //   esbuild → bundle, platform=browser, format=esm, jsx=automatic,
 //   external=['react','react-dom','react/jsx-runtime','react-dom/client','react-router-dom','cordis']
 
@@ -202,7 +203,7 @@ with `initiator: "replay:<recordId>"`, producing a new `AuditRecord` with
 
 ## Distributing
 
-- **Zip**: build with `esbuild` (see `plugins/example-api/scripts/build.mjs`),
+- **Zip**: build with `esbuild` (see `apps/cli/templates/plugin-workspace/scripts/build.mjs`),
   upload via `/api/plugins` or the Plugins page
 - **npm**: publish a package with `api-audit.manifest` + `api-audit.browser` in
   `package.json`, install via `npx @flowot/nx-pn add <name>`
@@ -212,16 +213,20 @@ with `initiator: "replay:<recordId>"`, producing a new `AuditRecord` with
 | Task | Command |
 |---|---|
 | Scaffold | `npx @flowot/nx-pn init <name>` |
-| Build | `cd <name> && npm install && npm run build` |
-| Local install (hot, live) | `curl -F zip=@dist/<name>.zip http://localhost:4560/api/plugins` |
-| Local install (ledger, next start) | `npx @flowot/nx-pn add file:./<name>` |
-| REST hot-install / hot-update | `POST /api/plugins/install {"spec":"file:<abs-path>"}` |
+| Build | `cd <name> && npm install && npm run build` → `dist/<id>.zip` |
+| Dev (host + hot-upload) | `npm run dev` (or `curl -F zip=@dist/<id>.zip http://localhost:4560/api/plugins` against a running host) |
 | Publish | `npm publish` → users: `npx @flowot/nx-pn add <name>` |
+
+> The npm **ledger** install (`npx @flowot/nx-pn add file:<dir>`) needs an
+> `api-audit.manifest` block in the plugin `package.json`, which the workspace
+> scaffold does not emit — use the zip path for scaffolded plugins.
 
 ## Full example
 
-See `plugins/example-api/` (activation-time GET) and `plugins/enco/`
-(user-driven form with POST/PUT/DELETE). The walkthrough for the form-style
-plugin is at `references/walkthrough-echo.md` (note: the doc still names
-`echo/`, but the current plugin source is at `plugins/enco/` after the 0.4.0
-refactor).
+## Full example
+
+The current plugin sources are `plugins/enco/` (user-driven form with
+POST/PUT/DELETE) and `plugins/kvlogin/` (log in through storage). The
+walkthrough for the form-style plugin is at `references/walkthrough-echo.md`
+(note: the doc names the plugin `echo`/`example-api`, but the current source is
+`plugins/enco/` after the 0.4.0 refactor).

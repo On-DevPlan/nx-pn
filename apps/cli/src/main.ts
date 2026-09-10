@@ -321,12 +321,12 @@ export function printUsage(): void {
 Usage: nx-pn [command] [options]        (npx @flowot/nx-pn <command>)
 
 Commands:
-  init <name>             Scaffold a plugin workspace (9 files: root + plugins/<id>/)
+  init <name>             Scaffold a plugin workspace (11 files + .claude/ dev skill)
                           [--dir <path>] [--force] [--no-skill]
                           [--layout shell|fullscreen] (default shell)
-                          [--dir <path>] [--force] [--no-skill]
   init-plugin <name>      Add a plugin to an existing workspace's plugins/
                           [--dir <workspace-path>] (default: cwd)
+                          [--layout shell|fullscreen] (default shell)
   add <spec>              Install a plugin by npm package name/spec
                           (@scope/pkg, pkg@ver, or file:./folder) — npx-plugin.
                           Forwards to a live host on --port (hot-add) when one
@@ -559,9 +559,7 @@ async function runInit(opts: CliOptions): Promise<void> {
   // eslint-disable-next-line no-console
   console.log('  npm install')
   // eslint-disable-next-line no-console
-  console.log('  npm run build')
-  // eslint-disable-next-line no-console
-  console.log('  npx @flowot/nx-pn add file:.')
+  console.log('  npm run dev            # starts a host and hot-uploads the plugin')
 }
 
 /** One-shot `nx-pn init-plugin <name>`: add a plugin to an existing workspace. */

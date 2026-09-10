@@ -35,8 +35,9 @@ without dragging cordis or any other runtime dep across the boundary.
 pnpm install
 pnpm -r build
 npx @flowot/nx-pn                  # starts web on :4560
-npx @flowot/nx-pn init my-plugin   # scaffold a new workspace (9 files + .claude/ dev skill; --no-skill to skip)
-npx @flowot/nx-pn init-plugin <id>  # add a plugin to an existing workspace's plugins/ dir
+npx @flowot/nx-pn init my-plugin   # scaffold a workspace (11 files + .claude/ dev skill;
+                                   #   --no-skill skips, --layout fullscreen for a viewport page)
+npx @flowot/nx-pn init-plugin <id>  # add another plugin to an existing workspace's plugins/
 ```
 
 ### Dev loop (the important UX)
@@ -45,11 +46,14 @@ The dev cycle is **workspace-based**: a workspace holds the base in `devDependen
 and the plugins in `plugins/`. From a workspace root:
 
 ```bash
-npm run dev                  # dev.mjs is self-contained: probes/spawns the embedded base
+npm run dev                  # dev.mjs is self-contained: probes/spawns its own host
                              # (./node_modules/@flowot/nx-pn/bin/nx-pn.mjs), startup-uploads
                              # every plugins/<id>/ (build → dist/<id>.zip → POST /api/plugins),
                              # then watches plugins/ via node:fs.watch — change → rebuild →
                              # re-upload (runId dedup hot-replaces). No external hmr dep.
+npm run shared-dev           # same loop, but joins (or creates) one shared host on :4560
+npm run build                # typecheck-free esbuild → dist/<id>.zip for the scaffolded plugin
+npm test                     # node:test + tsx against plugins/<id>/host.test.ts
 ```
 
 Or for the monorepo root (`scripts/dev.mjs`):
@@ -92,7 +96,7 @@ You don't need to read anything in `core-developer/` — start here.
   place: manifest fields, host half shape, browser half shape, the three ctx services
   (`pages` / `auditClient` / `hostCall`), attribution rules, replay.
 - `references/plugin-developer/scaffolding.md` — `npx @flowot/nx-pn init my-plugin` produces
-  9 files + a `.claude/` dev skill (default on; `--no-skill` skips). Walk through each.
+  11 files + a `.claude/` dev skill (default on; `--no-skill` skips). Walk through each.
 - `references/plugin-developer/cli-automation.md` — the CLI as an automation surface: build /
   install / plugin management / audit-trail queries (`--format jsonl|csv`) from the terminal or
   an agent — no browser required. Read this if you want to script your plugin's dev loop.

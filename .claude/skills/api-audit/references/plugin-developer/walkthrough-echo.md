@@ -1,8 +1,10 @@
 # The second plugin: `plugins/enco/` (formerly `echo/`)
 
 > **Note**: this walkthrough documents the **old** `echo/` plugin (deleted in the
-> 0.4.0 refactor). The current equivalent is `plugins/enco/` (encoding utility demo)
-> with the same `browser.tsx` React-form + `host.ts` cordis-event pattern. See
+> 0.4.0 refactor), and its contrast target `example-api/` is gone too. The current
+> equivalent is `plugins/enco/` (encoding utility demo) with the same
+> `browser.tsx` React-form + `host.ts` cordis-event pattern; the old simple
+> hello-call now lives in the scaffold template's `host.ts`. See
 > `apps/cli/templates/plugin-workspace/plugins/{{pluginId}}/` for the new template.
 
 A user-driven API request tester. Unlike `example-api` (which fires one fixed GET
