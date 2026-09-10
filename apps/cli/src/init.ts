@@ -168,6 +168,7 @@ export async function scaffoldPlugin(opts: InitOptions): Promise<InitResult> {
     'tsconfig.json',
     'manifest.json',
     'host.ts',
+    'host.test.ts',
     browserFile,
   ]
 
@@ -248,6 +249,7 @@ async function copyDir(src: string, dst: string): Promise<void> {
 export async function scaffoldPluginInWorkspace(opts: {
   name: string
   workspaceDir: string
+  layout: 'shell' | 'fullscreen'
 }): Promise<InitResult> {
   validateName(opts.name)
   const title = nameToTitle(opts.name)
@@ -286,12 +288,17 @@ export async function scaffoldPluginInWorkspace(opts: {
 
   await mkdir(pluginDir, { recursive: true })
 
+  // Same layout-dependent browser file as scaffoldPlugin — the template
+  // ships browser-sidebar.tsx (shell) and browser-fullscreen.tsx (fullscreen);
+  // only the selected variant is copied.
+  const browserFile = opts.layout === 'fullscreen' ? 'browser-fullscreen.tsx' : 'browser-sidebar.tsx'
   const pluginFiles = [
     'package.json',
     'tsconfig.json',
     'manifest.json',
     'host.ts',
-    'browser.tsx',
+    'host.test.ts',
+    browserFile,
   ]
   const written: string[] = []
   for (const f of pluginFiles) {

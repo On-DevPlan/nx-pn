@@ -5,9 +5,9 @@
  * Usage: node scripts/build.mjs <pluginId>
  *
  * Build steps:
- *   1. Read plugin sources (host.ts, browser.tsx, manifest.json, package.json)
+ *   1. Read plugin sources (host.ts, browser-*.tsx, manifest.json, package.json)
  *   2. esbuild bundle host.ts → host.js (node, esm, external cordis)
- *   3. esbuild bundle browser.tsx → browser.js (browser, esm, jsx automatic,
+ *   3. esbuild bundle browser-*.tsx → browser.js (browser, esm, jsx automatic,
  *      external react/react-dom/cordis/react-router-dom)
  *   4. Defensive check: cordis must not appear in either bundle
  *   5. Assemble STORED zip: manifest.json, host.js, browser.js
@@ -17,7 +17,7 @@
  */
 
 import { build } from 'esbuild'
-import { readFile, writeFile, mkdir, rm } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, rm, readdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -32,10 +32,20 @@ if (!pluginId) {
 const pluginDir = join(root, 'plugins', pluginId)
 const outDir = join(root, 'dist')
 
+// Discover the browser half: the scaffold ships exactly one of
+// browser-sidebar.tsx (shell) / browser-fullscreen.tsx (fullscreen) — there is
+// no single fixed name, so never hardcode it.
+const browserFile = (await readdir(pluginDir)).find((f) => /^browser(?:-[\w-]+)?\.tsx$/.test(f))
+if (!browserFile) {
+  console.error(`${pluginId}: no browser*.tsx found in ${pluginDir}`)
+  process.exit(1)
+}
+const browserPath = join(pluginDir, browserFile)
+
 // ── 1. Read plugin sources ────────────────────────────────────────────────────
 const [hostSrc, browserSrc, manifestRaw, pkgRaw] = await Promise.all([
   readFile(join(pluginDir, 'host.ts'), 'utf-8'),
-  readFile(join(pluginDir, 'browser.tsx'), 'utf-8'),
+  readFile(browserPath, 'utf-8'),
   readFile(join(pluginDir, 'manifest.json'), 'utf-8'),
   readFile(join(pluginDir, 'package.json'), 'utf-8'),
 ])
@@ -54,7 +64,7 @@ await build({
 
 // ── 3. Build browser.js ───────────────────────────────────────────────────────
 await build({
-  entryPoints: [join(pluginDir, 'browser.tsx')],
+  entryPoints: [browserPath],
   bundle: true,
   platform: 'browser',
   format: 'esm',
@@ -78,7 +88,7 @@ if (!/from\s*["']react["']/.test(compiledBrowser)) {
   throw new Error(`${pluginId}: compiled browser.js must keep React external`)
 }
 // react-router-dom check: only enforce IF the source uses it (plugins like enco don't)
-const browserTsxSrc = await readFile(join(pluginDir, 'browser.tsx'), 'utf-8')
+const browserTsxSrc = await readFile(browserPath, 'utf-8')
 if (/from\s*["']react-router-dom["']/.test(browserTsxSrc) && !/from\s*["']react-router-dom["']/.test(compiledBrowser)) {
   throw new Error(`${pluginId}: compiled browser.js must keep react-router-dom external`)
 }

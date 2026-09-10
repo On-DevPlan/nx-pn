@@ -570,6 +570,7 @@ async function runInitPlugin(opts: CliOptions): Promise<void> {
   const result = await scaffoldPluginInWorkspace({
     name: opts.pluginName!,
     workspaceDir,
+    layout: opts.layout ?? 'shell',
   })
   // eslint-disable-next-line no-console
   console.log(`✔ 已在 workspace 添加插件 ${opts.pluginName} (${result.files.length} 个文件)`)

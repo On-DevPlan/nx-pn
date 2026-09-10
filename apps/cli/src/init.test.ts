@@ -2,9 +2,10 @@
  * @vitest-environment node
  */
 import { describe, it, expect } from 'vitest'
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   InitError,
   NAME_PATTERN,
@@ -13,6 +14,7 @@ import {
   nameToTitle,
   renderTemplate,
   scaffoldPlugin,
+  scaffoldPluginInWorkspace,
   validateName,
 } from './init.js'
 
@@ -98,15 +100,15 @@ describe('renderTemplate', () => {
 
 describe('scaffoldPlugin (end-to-end)', () => {
   it(
-    'writes the workspace structure (10 files) into a fresh dir and replaces {{vars}}',
+    'writes the workspace structure (11 files) into a fresh dir and replaces {{vars}}',
     async () => {
       const dir = await mkdtemp(join(tmpdir(), 'init-test-'))
       try {
         const result = await scaffoldPlugin({ name: 'demo-plugin', dir, force: false })
         // workspace template: 5 root files (package.json, tsconfig.json,
         // scripts/dev.mjs, scripts/shared-dev.mjs, scripts/build.mjs) +
-        // 5 plugin subdir files = 10 files
-        expect(result.files).toHaveLength(10)
+        // 6 plugin subdir files (incl. host.test.ts) = 11 files
+        expect(result.files).toHaveLength(11)
 
         // manifest.json IS scaffolded (workspace template includes it)
         const manifest = JSON.parse(await readFile(join(dir, 'plugins', 'demo-plugin', 'manifest.json'), 'utf-8'))
@@ -160,7 +162,7 @@ describe('scaffoldPlugin (end-to-end)', () => {
     try {
       await scaffoldPlugin({ name: 'demo-plugin', dir, force: false })
       const result = await scaffoldPlugin({ name: 'demo-plugin', dir, force: true })
-      expect(result.files).toHaveLength(10)
+      expect(result.files).toHaveLength(11)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -201,6 +203,164 @@ describe('scaffoldPlugin (end-to-end)', () => {
       ).rejects.toThrow()
     } finally {
       await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('scaffoldPluginInWorkspace (init-plugin)', () => {
+  /** Fresh workspace via `init`, as the real flow does. */
+  async function makeWorkspace(): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'init-ws-'))
+    await scaffoldPlugin({ name: 'first-plugin', dir, force: false })
+    return dir
+  }
+
+  it('adds a second plugin with browser-sidebar.tsx + host.test.ts (default shell)', async () => {
+    const ws = await makeWorkspace()
+    try {
+      await scaffoldPluginInWorkspace({ name: 'second-plugin', workspaceDir: ws, layout: 'shell' })
+      await stat(join(ws, 'plugins', 'second-plugin', 'browser-sidebar.tsx'))
+      await stat(join(ws, 'plugins', 'second-plugin', 'host.test.ts'))
+      await expect(
+        stat(join(ws, 'plugins', 'second-plugin', 'browser-fullscreen.tsx')),
+      ).rejects.toThrow()
+    } finally {
+      await rm(ws, { recursive: true, force: true })
+    }
+  })
+
+  it('layout=fullscreen writes browser-fullscreen.tsx instead', async () => {
+    const ws = await makeWorkspace()
+    try {
+      await scaffoldPluginInWorkspace({ name: 'second-plugin', workspaceDir: ws, layout: 'fullscreen' })
+      await stat(join(ws, 'plugins', 'second-plugin', 'browser-fullscreen.tsx'))
+      await expect(
+        stat(join(ws, 'plugins', 'second-plugin', 'browser-sidebar.tsx')),
+      ).rejects.toThrow()
+    } finally {
+      await rm(ws, { recursive: true, force: true })
+    }
+  })
+
+  it('appends the plugin entry to koishi.config.yml', async () => {
+    const ws = await makeWorkspace()
+    try {
+      await scaffoldPluginInWorkspace({ name: 'second-plugin', workspaceDir: ws, layout: 'shell' })
+      const cfg = await readFile(join(ws, 'koishi.config.yml'), 'utf-8')
+      expect(cfg).toContain('id: second-plugin')
+      expect(cfg).toContain('path: ./plugins/second-plugin')
+    } finally {
+      await rm(ws, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses when the plugin already exists', async () => {
+    const ws = await makeWorkspace()
+    try {
+      await expect(
+        scaffoldPluginInWorkspace({ name: 'first-plugin', workspaceDir: ws, layout: 'shell' }),
+      ).rejects.toThrow(InitError)
+    } finally {
+      await rm(ws, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses when the directory has no package.json (not a workspace)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'init-ws-'))
+    try {
+      await expect(
+        scaffoldPluginInWorkspace({ name: 'some-plugin', workspaceDir: dir, layout: 'shell' }),
+      ).rejects.toThrow(/no package\.json/)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('template ↔ fileList lockstep (anti-desync)', () => {
+  const templateDir = fileURLToPath(new URL('../templates/plugin-workspace', import.meta.url))
+
+  /** Recursively collect relative file paths under dir. */
+  async function walk(dir: string, base = ''): Promise<string[]> {
+    const out: string[] = []
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const rel = base ? `${base}/${entry.name}` : entry.name
+      if (entry.isDirectory()) out.push(...(await walk(join(dir, entry.name), rel)))
+      else out.push(rel)
+    }
+    return out
+  }
+
+  it('init scaffolds every template file (root + plugin, minus the unselected browser layout)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'init-test-'))
+    try {
+      const result = await scaffoldPlugin({ name: 'demo-plugin', dir, force: false })
+      const written = new Set(result.files)
+
+      // Root scope: every non-plugin, non-.claude template file must be reported
+      // (catches a file added to templates/ but forgotten in rootFiles).
+      for (const rel of await walk(templateDir)) {
+        if (rel.startsWith('.claude/')) continue // copied via copyDir, reported once as '.claude/'
+        if (rel.startsWith('plugins/')) continue // plugin scope checked below
+        expect(written.has(rel), `template root file missing from init output: ${rel}`).toBe(true)
+      }
+
+      // Plugin scope: everything except the browser variant NOT selected by
+      // layout=shell (catches stale names like the removed browser.tsx).
+      const excluded = new Set(['browser-fullscreen.tsx'])
+      for (const f of await walk(join(templateDir, 'plugins', '{{pluginId}}'))) {
+        if (excluded.has(f)) continue
+        expect(written.has(`plugins/demo-plugin/${f}`), `template plugin file missing: ${f}`).toBe(true)
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('init-plugin scaffolds every template plugin file, for both layouts', async () => {
+    for (const layout of ['shell', 'fullscreen'] as const) {
+      const ws = await mkdtemp(join(tmpdir(), 'init-ws-'))
+      try {
+        await scaffoldPlugin({ name: 'first-plugin', dir: ws, force: false })
+        await scaffoldPluginInWorkspace({ name: 'second-plugin', workspaceDir: ws, layout })
+        const excluded = layout === 'shell' ? 'browser-fullscreen.tsx' : 'browser-sidebar.tsx'
+        for (const f of await walk(join(templateDir, 'plugins', '{{pluginId}}'))) {
+          const out = join(ws, 'plugins', 'second-plugin', f)
+          if (f === excluded) {
+            await expect(stat(out), `${layout}: ${f} must not be scaffolded`).rejects.toThrow()
+          } else {
+            await stat(out) // ENOENT here = a fileList entry went stale
+          }
+        }
+      } finally {
+        await rm(ws, { recursive: true, force: true })
+      }
+    }
+  })
+
+  it('template scripts stay resolvable: every npm script target file exists after scaffold', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'init-test-'))
+    try {
+      await scaffoldPlugin({ name: 'demo-plugin', dir, force: false })
+      const pkg = JSON.parse(await readFile(join(dir, 'package.json'), 'utf-8'))
+      // test script references plugins/<id>/host.test.ts — must exist
+      const testTarget = pkg.scripts.test.match(/--test\s+(\S+)/)![1]!
+      await stat(join(dir, testTarget))
+      // typecheck references plugins/<id>/tsconfig.json — must exist
+      const tscTarget = pkg.scripts.typecheck.match(/-p\s+(\S+)/)![1]!
+      await stat(join(dir, tscTarget))
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('no template file references the removed literal browser.tsx', async () => {
+    // Regression guard for 0.4.3: browser.tsx was renamed to browser-sidebar.tsx /
+    // browser-fullscreen.tsx, but build.mjs / tsconfig were left pointing at the old
+    // name. Any occurrence of the bare token means a script will ENOENT at run time.
+    for (const rel of await walk(templateDir)) {
+      const body = await readFile(join(templateDir, rel), 'utf-8')
+      expect(body.includes('browser.tsx'), `stale reference to browser.tsx in ${rel}`).toBe(false)
     }
   })
 })
