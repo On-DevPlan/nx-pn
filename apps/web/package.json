@@ -1,6 +1,6 @@
 {
   "name": "@flowot/nx-pn-web",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "Web shell frontend for the nx-pn plugin platform — vite build; dist/ served by the host",
   "license": "MIT",
   "publishConfig": {

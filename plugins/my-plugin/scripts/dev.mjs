@@ -133,6 +133,38 @@ function startWatcher() {
 
 // ── Main ──────────────────────────────────────────────────────────────────
 
+// Track the spawned host so Ctrl+C / SIGTERM can stop it cleanly. Without
+// this the host is left running (and holding :PORT) after the dev script
+// exits — the detached+unref below was the original cause.
+let hostChild = null
+let shuttingDown = false
+
+function shutdown(signal) {
+  if (shuttingDown) return
+  shuttingDown = true
+  console.log('[dev] received ' + signal + ', stopping host...')
+  const child = hostChild
+  if (child && child.exitCode === null && child.signalCode === null) {
+    try { child.kill('SIGINT') } catch {}
+    const forceTimer = setTimeout(() => {
+      if (hostChild && hostChild.exitCode === null && hostChild.signalCode === null) {
+        console.error('[dev] host did not stop in 5s, force-killing')
+        try { hostChild.kill('SIGKILL') } catch {}
+      }
+    }, 5000)
+    forceTimer.unref()
+    child.once('exit', (code, sig) => {
+      clearTimeout(forceTimer)
+      process.exit(sig ? 1 : 0)
+    })
+  } else {
+    process.exit(0)
+  }
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'))
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+
 console.log('[dev] probing ' + HOST + ' ...')
 const alreadyUp = await probe(PORT)
 if (alreadyUp) {
@@ -141,19 +173,17 @@ if (alreadyUp) {
   console.log('[dev] no host detected — spawning local nx-pn ...')
   console.log('[dev] base: ' + localBase)
   console.log('[dev] data-dir: ' + DATA_DIR)
-  const child = spawn('node', [
+  hostChild = spawn('node', [
     localBase,
     '--no-open',
     '--port', String(PORT),
     '--data-dir', DATA_DIR,
   ], {
-    detached: true,
     stdio: 'ignore',
     windowsHide: true,
     cwd: __root,
   })
-  child.unref()
-  console.log('[dev] spawned pid ' + child.pid + ' (detached)')
+  console.log('[dev] spawned pid ' + hostChild.pid + ' (managed)')
 
   const ready = await waitForHost(MAX_WAIT_MS)
   if (!ready) {

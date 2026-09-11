@@ -1,6 +1,6 @@
 {
   "name": "@flowot/nx-pn-core",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "Pure contracts for the nx-pn plugin platform: Manifest, AuditClient, middleware vocabulary",
   "license": "MIT",
   "publishConfig": {
