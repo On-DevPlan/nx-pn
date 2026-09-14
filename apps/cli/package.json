@@ -19,6 +19,7 @@
     "bin",
     "lib",
     "templates",
+    "assets",
     "!lib/*.tsbuildinfo"
   ],
   "scripts": {

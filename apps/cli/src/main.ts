@@ -19,6 +19,7 @@ import { probeHost } from './probe.js'
 import { runAuditList, runAuditLastId } from './audit-cmds.js'
 import { runPluginList, runPluginShow, runPluginStop, runPluginStart, runPluginRemove, runPluginUninstall } from './plugin-cmds.js'
 import { runBuild } from './build-cmd.js'
+import { runSkillInstall, runSkillList, runSkillUninstall } from './skill-cmds-run.js'
 
 export const DEFAULT_PORT = 4560
 
@@ -38,7 +39,7 @@ export interface CliOptions {
   /** Whether to auto-open the browser (default true; --no-open disables). */
   open: boolean
   /** Set when the first positional names a one-shot subcommand. */
-  subcommand?: 'add' | 'uninstall' | 'init' | 'init-plugin' | 'audit' | 'plugin' | 'build'
+  subcommand?: 'add' | 'uninstall' | 'init' | 'init-plugin' | 'audit' | 'plugin' | 'build' | 'skill'
   /** For `add <spec>` — npm package name/spec or file: path. */
   spec?: string
   /** For `uninstall <id|runId>` — manifest id or pluginRunId. */
@@ -63,6 +64,10 @@ export interface CliOptions {
   pluginAction?: 'list' | 'show' | 'stop' | 'start' | 'remove' | 'uninstall'
   /** For `plugin show|stop|remove|uninstall` — target id or runId. */
   pluginTarget?: string
+  /** For `skill` — action: install | list | uninstall. */
+  skillAction?: 'install' | 'list' | 'uninstall'
+  /** For `skill install|uninstall <name>` — skill name (default: api-audit). */
+  skillName?: string
   /** For `build <dir>` — plugin directory. */
   buildDir?: string
   /**
@@ -298,6 +303,28 @@ export function parseArgs(argv: string[]): CliOptions {
           throw new CliArgError(`unexpected argument after target: ${positionals[3]}`)
         }
       }
+    } else if (cmd === 'skill') {
+      opts.subcommand = 'skill'
+      const actions = ['install', 'list', 'uninstall'] as const
+      if (!second || !(actions as readonly string[]).includes(second)) {
+        throw new CliArgError(`skill requires an action: ${actions.join(' | ')} (got ${second ?? 'nothing'})`)
+      }
+      opts.skillAction = second as (typeof actions)[number]
+      if (second === 'list') {
+        if (positionals.length > 2) {
+          throw new CliArgError(`unexpected argument after 'skill list': ${positionals[2]}`)
+        }
+      } else {
+        // install [name] / uninstall <name> — install may omit the name (default).
+        const target = positionals[2]
+        if (!target && second === 'uninstall') {
+          throw new CliArgError('skill uninstall requires a skill name')
+        }
+        if (target) opts.skillName = target
+        if (positionals.length > 3) {
+          throw new CliArgError(`unexpected argument after skill name: ${positionals[3]}`)
+        }
+      }
     } else if (cmd === 'build') {
       opts.subcommand = 'build'
       if (!second) {
@@ -346,6 +373,10 @@ Commands:
   plugin remove <runId>   Stop + evict from the lifecycle registry
   plugin uninstall <id>   Remove + drop from the npm ledger
   build <pluginDir>       Build a plugin's zip (runs its scripts/build-zip.mjs)
+  skill install [name]    Install an official nx-pn skill into ~/.claude/skills/
+                          (default: api-audit; --force to replace an existing one)
+  skill list              List available skills and their install status
+  skill uninstall <name>  Remove an installed skill from ~/.claude/skills/
   (default)               Start the web server (dashboard) on --port
 
 Options:
@@ -422,6 +453,20 @@ export async function runCli(argv: string[]): Promise<void> {
         break
       case 'uninstall':
         await runPluginUninstall(opts)
+        break
+    }
+    return
+  }
+  if (opts.subcommand === 'skill') {
+    switch (opts.skillAction) {
+      case 'install':
+        await runSkillInstall(opts)
+        break
+      case 'list':
+        await runSkillList(opts)
+        break
+      case 'uninstall':
+        await runSkillUninstall(opts)
         break
     }
     return
