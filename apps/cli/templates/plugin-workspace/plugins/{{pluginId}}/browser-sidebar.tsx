@@ -25,7 +25,10 @@ interface BrowserCtx {
       Component?: unknown
     }): unknown
   }
-  hostCall: <T = unknown>(event: string, payload?: unknown) => Promise<T>
+  /** cordis service object — call as ctx.hostCall.hostCall(event, payload). */
+  hostCall: {
+    hostCall<T = unknown>(event: string, payload?: unknown): Promise<T>
+  }
 }
 
 const browserHalf = function browserHalf(ctx: BrowserCtx, config?: { name?: string }): void {
@@ -40,7 +43,7 @@ const browserHalf = function browserHalf(ctx: BrowserCtx, config?: { name?: stri
     async function run(name: string, event: string, payload?: unknown) {
       setBusy(name); setError(null); setResult(null)
       try {
-        const r = await ctx.hostCall(event, payload)
+        const r = await ctx.hostCall.hostCall(event, payload)
         setResult(r)
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e))
@@ -91,5 +94,5 @@ const browserHalf = function browserHalf(ctx: BrowserCtx, config?: { name?: stri
   })
 }
 
-;(browserHalf as typeof browserHalf & { inject?: string[] }).inject = ['pages']
+;(browserHalf as typeof browserHalf & { inject?: string[] }).inject = ['pages', 'auditClient', 'hostCall']
 export default browserHalf

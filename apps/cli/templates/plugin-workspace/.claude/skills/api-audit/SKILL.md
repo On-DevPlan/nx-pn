@@ -84,7 +84,7 @@ export default async (ctx, config) => {   // config.name = manifest.id
 ```
 
 `ctx.on('<id>/<action>', handler)` registers a **tool endpoint**; the browser half
-invokes it with `ctx.hostCall('<id>/<action>', payload)`. The handler's return
+invokes it with `ctx.hostCall.hostCall('<id>/<action>', payload)`. The handler's return
 value is wrapped in `{ ok, data?, error? }`.
 
 `ctx.pluginStorage.table(name)` is this plugin's own durable namespace (survives
@@ -97,12 +97,13 @@ export default (ctx) => {
   const Page = () => {                       // define inside so it closes over ctx
     const [n, setN] = useState(0)
     return <button onClick={async () => {
-      const r = await ctx.hostCall('<id>/my-action', { n })  // → { ok, data, error }
+      const r = await ctx.hostCall.hostCall('<id>/my-action', { n })  // → { ok, data, error }
       const a = await ctx.auditClient.get('https://...')     // proxied to host over WS
     }}>{n}</button>
   }
   ctx.pages.register({ pluginId: '<id>', path: '/<id>', title: 'Title', Component: Page })
 }
+;(fn as any).inject = ['pages', 'auditClient', 'hostCall']   // wait for all three services
 ```
 
 `ctx.pages.register({ pluginId, path, title, order?, layout?, routes?, Component })`:

@@ -8,8 +8,9 @@
  *   2. Fires one hello-call at activation so /audit shows a record
  *      attributed to {{pluginId}}.
  *   3. Registers three tool endpoints the browser half invokes via
- *      ctx.hostCall('<id>/<endpoint>', payload):
+ *      ctx.hostCall.hostCall('<id>/<endpoint>', payload):
  *        - {{pluginId}}/health-check   → {status, ts, ns, bootCount}
+ *        - {{pluginId}}/boot-count     → {bootCount}
  *        - {{pluginId}}/storage-read   → {table, key} → value
  *        - {{pluginId}}/storage-write  → {table, key, value} → ok
  *
@@ -57,11 +58,13 @@ const plugin = async function plugin(ctx: HostCtx, config?: { name?: string }): 
   // (2) Hello at activation — fire-and-forget; lands on /audit with initiator={{pluginId}}.
   void ctx.auditClient.get(DEFAULT_URL).catch(() => {})
 
-  // (3) Tool endpoints — browser half calls these via ctx.hostCall.
+  // (3) Tool endpoints — browser half calls these via ctx.hostCall.hostCall.
   ctx.on('{{pluginId}}/health-check', () => ({
     ok: true,
     data: { status: 'ok', ts: Date.now(), ns: ctx.pluginStorage?.ns ?? null, bootCount },
   }))
+
+  ctx.on('{{pluginId}}/boot-count', () => ({ ok: true, data: { bootCount } }))
 
   ctx.on('{{pluginId}}/storage-read', (payload) => {
     const p = (payload ?? {}) as { table?: string; key?: string }

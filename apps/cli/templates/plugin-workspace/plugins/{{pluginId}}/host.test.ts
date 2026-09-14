@@ -46,12 +46,21 @@ const call = (handlers: Map<string, Handler>, event: string, payload?: unknown) 
   return h(payload) as Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }>
 }
 
-test('activation registers the three tool endpoints', async () => {
+test('activation registers the four tool endpoints', async () => {
   const { ctx, handlers } = makeCtx()
   await plugin(ctx)
   assert.ok(handlers.has('{{pluginId}}/health-check'))
+  assert.ok(handlers.has('{{pluginId}}/boot-count'))
   assert.ok(handlers.has('{{pluginId}}/storage-read'))
   assert.ok(handlers.has('{{pluginId}}/storage-write'))
+})
+
+test('boot-count reports the boot counter', async () => {
+  const { ctx, handlers } = makeCtx()
+  await plugin(ctx)
+  const res = await call(handlers, '{{pluginId}}/boot-count')
+  assert.equal(res.ok, true)
+  assert.equal((res.data as { bootCount: number }).bootCount, 1)
 })
 
 test('health-check reports ns + boot count', async () => {
