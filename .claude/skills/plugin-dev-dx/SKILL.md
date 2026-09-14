@@ -11,11 +11,12 @@ nx-pn 的插件开发模型：**一条 `npm run dev` 命令打通"改代码 → 
 
 | 项 | 现状 |
 |---|---|
-| 脚手架 | `npx @flowot/nx-pn init <name>` → 9 个文件（含 `scripts/dev.mjs`） |
+| 脚手架 | `npx @flowot/nx-pn init <name>` → 12 个文件（含 `scripts/dev.mjs` + `.claude/` dev skill）；0.4.7 起模板自带正确的 `ctx.hostCall.hostCall` 调用形状与 `boot-count` 端点 |
 | 一条命令闭环 | `npm run dev`：watch 源文件 → 自动 rebuild → 自动热上传 → 页面自动推送 |
 | 底座启动 | 三级探测自动拉起（NX_PN_HOST_CMD → 全局 nx-pn → npx 缓存），无弹窗、秒级失败指引 |
 | 热更新链路 | 上传 → host 解压/校验/esbuild → runId 去重替换 → WS 推 `browser-half.load` → 页面自动切换 |
 | 数据目录 | 默认 `~/.api-audit`；`--data-dir <path>` 可隔离（测试/多实例） |
+| skill 管理 | `npx @flowot/nx-pn skill install\|list\|uninstall`（0.4.7+）— 官方 skill 装入 `~/.claude/skills/`，源在 CLI 包 `assets/skills/<name>/` |
 
 ## 核心工作流：npm run dev
 
